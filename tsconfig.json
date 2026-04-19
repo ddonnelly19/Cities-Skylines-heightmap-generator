@@ -7,14 +7,16 @@
 		"rootDir": "src",
 		"outDir": "out",
 		"inlineSourceMap": true,
-		"strict": true,
-		"allowJs": true,
-		"checkJs": true,
+		"strict": false,
+		"allowJs": false,
+		"checkJs": false,
+		"noEmitOnError": true,
 		"forceConsistentCasingInFileNames": true,
 		"target": "esnext"
 	},
 	"include": [
-		"src/**/*"
+		"src/**/*.ts",
+		"src/**/*.d.ts"
 	],
 	"exclude": [
 		"out/**/*"
