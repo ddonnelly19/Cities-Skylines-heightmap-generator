@@ -7,7 +7,7 @@
 		"typescript": "^5.6.3"
 	},
 	"scripts": {
-		"build": "rm -rf out && tsc && cp src/index.html src/styles.css src/favicon.ico src/jszip.js src/pako.min.js src/upng.js out/",
+		"build": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && tsc && node -e \"const fs=require('fs');const files=['index.html','styles.css','favicon.ico','jszip.js','pako.min.js','upng.js'];for (const f of files){fs.copyFileSync('src/'+f,'out/'+f);}\"",
 		"typecheck": "tsc --noEmit",
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
