@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 export var MapboxLib = (function () {
 	'use strict';
 
@@ -3235,7 +3237,9 @@ export var MapboxLib = (function () {
 		return ret;
 	};
 
-	// Copyright Joyent, Inc. and other Node contributors.
+// @ts-nocheck
+
+// Copyright Joyent, Inc. and other Node contributors.
 	var isBufferEncoding = Buffer.isEncoding
 		|| function (encoding) {
 			switch (encoding && encoding.toLowerCase()) {

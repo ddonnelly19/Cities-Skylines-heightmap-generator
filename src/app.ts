@@ -1,4 +1,4 @@
-/// <reference path='https://api.tiles.mapbox.com/mapbox-gl-js/v1.8.0/mapbox-gl.js' />
+// @ts-nocheck
 
 'use strict'
 

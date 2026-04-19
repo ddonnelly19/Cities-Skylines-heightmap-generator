@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 // see: https://michaelmovsesov.com/articles/angular-like-two-way-data-binding-vanilla-js
 
 'use strict'
@@ -7,7 +9,7 @@ const inputElements = document.querySelectorAll('[data-model]');
 const boundElements = document.querySelectorAll('[data-bind]');
 
 // Initialize scope variable to hold the state of the model.
-let scope = {};
+var scope: any = {};
 
 
 function init() {

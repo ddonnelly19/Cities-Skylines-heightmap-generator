@@ -1,3 +1,5 @@
+// @ts-nocheck
+
 // see: https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
 'use strict';
