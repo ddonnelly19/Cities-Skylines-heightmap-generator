@@ -1,0 +1,20 @@
+{
+  "name": "cities-skylines-heightmap-generator",
+  "version": "1.0.0",
+  "description": "*This is a fork of the original heightmap builder (JBerg60/cities-heightmap)*",
+  "main": "out/index.html",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ddonnelly19/Cities-Skylines-heightmap-generator.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ddonnelly19/Cities-Skylines-heightmap-generator/issues"
+  },
+  "homepage": "https://github.com/ddonnelly19/Cities-Skylines-heightmap-generator#readme"
+}
