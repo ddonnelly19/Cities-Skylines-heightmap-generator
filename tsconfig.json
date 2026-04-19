@@ -8,12 +8,17 @@
 		"rootDir": "src",
 		"outDir": "out",
 		"inlineSourceMap": true,
-		"strict": false,
+		"strict": true,
+		"skipLibCheck": true,
 		"allowJs": false,
 		"checkJs": false,
+		"noEmit": true,
 		"noEmitOnError": true,
 		"forceConsistentCasingInFileNames": true,
-		"target": "esnext"
+		"target": "esnext",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"esModuleInterop": true
 	},
 	"include": [
 		"src/**/*.ts",

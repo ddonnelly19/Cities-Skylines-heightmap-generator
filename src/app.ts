@@ -1,94 +1,98 @@
-// @ts-nocheck
-
-'use strict'
-
-const defaultWaterdepth = 40;
+import JSZip from 'jszip';
+import * as UPNG from 'upng-js';
+import { VectorTile } from '@mapbox/vector-tile';
+import Protobuf from 'pbf';
+import { scope } from './binding';
+import { long2tile, lat2tile, tile2long, tile2lat } from './tiles';
 
 // see: https://www.taylorpetrick.com/blog/post/convolution-part3
-const meanKernel = [ 
-    [1, 1, 1], 
-    [1, 1, 1], 
-    [1, 1, 1] 
-]; 
+const defaultWaterdepth = 40;
 
-const sharpenKernel = [ 
-    [-0.00391, -0.01563, -0.02344, -0.01563, -0.00391], 
+const meanKernel: number[][] = [
+    [1, 1, 1],
+    [1, 1, 1],
+    [1, 1, 1],
+];
+
+const sharpenKernel: number[][] = [
+    [-0.00391, -0.01563, -0.02344, -0.01563, -0.00391],
     [-0.01563, -0.06250, -0.09375, -0.06250, -0.01563],
-    [-0.02344, -0.09375, +1.85980, -0.09375, -0.02344], 
+    [-0.02344, -0.09375, +1.85980, -0.09375, -0.02344],
     [-0.01563, -0.06250, -0.09375, -0.06250, -0.01563],
-    [-0.00391, -0.01563, -0.02344, -0.01563, -0.00391] 
-]; 
+    [-0.00391, -0.01563, -0.02344, -0.01563, -0.00391],
+];
 
-var vmapSize = 18.144;
-var mapSize = 17.28;
-var tileSize = 1.92;
+let vmapSize = 18.144;
+let mapSize = 17.28;
+let tileSize = 1.92;
 
-var grid = loadSettings();
+let grid = loadSettings();
 
-var mapCanvas;
+let mapCanvas: HTMLElement;
+let cache: Cache;
 
-var cache;
-
-var panels = document.getElementsByClassName('panel');
-var icons = document.getElementsByClassName('icon');
-var iconClass = [];
+const panels = document.getElementsByClassName('panel');
+const icons = document.getElementsByClassName('icon');
+const iconClass: string[] = [];
 
 for (let i = 0; i < panels.length; i++) {
-    iconClass.push(icons[i].className);
+    iconClass.push((icons[i] as HTMLElement).className);
 }
 
-let debug = !!new URL(window.location.href).searchParams.get('debug');
-let debugElements = document.getElementsByClassName('debug');
-if (debug) while (debugElements.length > 0) {
-    debugElements[0].classList.remove('debug');
+const debug = !!new URL(window.location.href).searchParams.get('debug');
+const debugElements = document.getElementsByClassName('debug');
+if (debug) {
+    while (debugElements.length > 0) {
+        debugElements[0].classList.remove('debug');
+    }
 }
 
 // Set the Mapbox API token
 mapboxgl.accessToken = getApiToken();
 
-var map = new mapboxgl.Map({
-    container: 'map',                               // Specify the container ID
-    style: 'mapbox://styles/mapbox/outdoors-v12',   // Specify which map style to use
-    //style: 'mapbox://styles/mapbox/streets-v11',  // Specify which map style to use
-    center: [grid.lng, grid.lat],                   // Specify the starting position [lng, lat]
-    zoom: grid.zoom,                                // Specify the starting zoom
-    preserveDrawingBuffer: true
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const map: any = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/outdoors-v12',
+    center: [grid.lng, grid.lat],
+    zoom: grid.zoom,
+    preserveDrawingBuffer: true,
 });
 
-var geocoder = new MapboxGeocoder({
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const geocoder: any = new MapboxGeocoder({
     accessToken: mapboxgl.accessToken,
     mapboxgl: mapboxgl,
-    marker: false
+    marker: false,
 });
 
-const pbElement = document.getElementById('progress');
+const pbElement = document.getElementById('progress') as HTMLProgressElement;
 
-document.getElementById('geocoder').appendChild(geocoder.onAdd(map));
+(document.getElementById('geocoder') as HTMLElement).appendChild(geocoder.onAdd(map));
 
 map.on('load', function () {
-    mapCanvas = map.getCanvasContainer();
+    mapCanvas = map.getCanvasContainer() as HTMLElement;
 
-    scope.mapSize = mapSize;
-    scope.baseLevel = 0;
-    scope.heightScale = 100;
+    scope['mapSize'] = mapSize;
+    scope['baseLevel'] = 0;
+    scope['heightScale'] = 100;
 
-    caches.open('tiles').then((data) => cache = data);
+    caches.open('tiles').then((data) => { cache = data; });
 });
 
 map.on('style.load', function () {
     addSource();
     addLayer();
     setDebug();
-
     setMouse();
-
     showWaterLayer();
     showHeightLayer();
 });
 
-map.on('click', function (e) {
-    grid.lng = e.lngLat.lng;
-    grid.lat = e.lngLat.lat;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+map.on('click', function (e: any) {
+    grid.lng = e.lngLat.lng as number;
+    grid.lat = e.lngLat.lat as number;
 
     setGrid(grid.lng, grid.lat, vmapSize);
     map.panTo(new mapboxgl.LngLat(grid.lng, grid.lat));
@@ -98,17 +102,17 @@ map.on('click', function (e) {
 });
 
 map.on('idle', function () {
-    // scope can be set if bindings.js is loaded (because of docReady) 
-    scope.waterDepth = parseInt(grid.waterDepth) || 50;
-    scope.gravityCenter = parseInt(grid.gravityCenter) || 0;
-    scope.levelCorrection = parseInt(grid.levelCorrection) || 0;
+    scope['waterDepth'] = parseInt(String(grid.waterDepth)) || 50;
+    scope['gravityCenter'] = parseInt(String(grid.gravityCenter)) || 0;
+    scope['levelCorrection'] = parseInt(String(grid.levelCorrection)) || 0;
 
     saveSettings();
 });
 
-geocoder.on('result', function (query) {
-    grid.lng = query.result.center[0];
-    grid.lat = query.result.center[1];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+geocoder.on('result', function (query: any) {
+    grid.lng = query.result.center[0] as number;
+    grid.lat = query.result.center[1] as number;
 
     setGrid(grid.lng, grid.lat, vmapSize);
     map.setZoom(10.2);
@@ -118,18 +122,19 @@ geocoder.on('result', function (query) {
     updateInfopanel();
 });
 
-function onMove(e) {
-    grid.lng = e.lngLat.lng;
-    grid.lat = e.lngLat.lat;
-    setGrid(e.lngLat.lng, e.lngLat.lat, vmapSize);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function onMove(e: any) {
+    grid.lng = e.lngLat.lng as number;
+    grid.lat = e.lngLat.lat as number;
+    setGrid(e.lngLat.lng as number, e.lngLat.lat as number, vmapSize);
 }
 
-function onUp(e) {
-    grid.lng = e.lngLat.lng;
-    grid.lat = e.lngLat.lat;
-    setGrid(e.lngLat.lng, e.lngLat.lat, vmapSize);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function onUp(e: any) {
+    grid.lng = e.lngLat.lng as number;
+    grid.lat = e.lngLat.lat as number;
+    setGrid(e.lngLat.lng as number, e.lngLat.lat as number, vmapSize);
 
-    // Unbind mouse/touch events
     map.off('mousemove', onMove);
     map.off('touchmove', onMove);
 
@@ -138,118 +143,44 @@ function onUp(e) {
 }
 
 function addSource() {
-    map.addSource('grid', {
-        'type': 'geojson',
-        'data': getGrid(grid.lng, grid.lat, vmapSize)
-    });
-
-    map.addSource('playable', {
-        'type': 'geojson',
-        'data': getGrid(grid.lng, grid.lat, vmapSize / 9 * 5)
-    });
-
-    map.addSource('start', {
-        'type': 'geojson',
-        'data': getGrid(grid.lng, grid.lat, vmapSize / 9)
-    });
-
-    map.addSource('mapbox-streets', {
-        type: 'vector',
-        url: 'mapbox://mapbox.mapbox-streets-v12'
-    });
-
-    map.addSource('contours', {
-        type: 'vector',
-        url: 'mapbox://mapbox.mapbox-terrain-v2'
-    });
+    map.addSource('grid', { type: 'geojson', data: getGrid(grid.lng, grid.lat, vmapSize) });
+    map.addSource('playable', { type: 'geojson', data: getGrid(grid.lng, grid.lat, vmapSize / 9 * 5) });
+    map.addSource('start', { type: 'geojson', data: getGrid(grid.lng, grid.lat, vmapSize / 9) });
+    map.addSource('mapbox-streets', { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v12' });
+    map.addSource('contours', { type: 'vector', url: 'mapbox://mapbox.mapbox-terrain-v2' });
 }
 
 function addLayer() {
+    map.addLayer({ id: 'gridlines', type: 'fill', source: 'grid',
+        paint: { 'fill-color': 'gray', 'fill-outline-color': 'gray', 'fill-opacity': 0.25 } });
+    map.addLayer({ id: 'playablesquare', type: 'fill', source: 'playable',
+        paint: { 'fill-color': 'green', 'fill-outline-color': 'green', 'fill-opacity': 0.3 } });
+    map.addLayer({ id: 'startsquare', type: 'fill', source: 'start',
+        paint: { 'fill-color': 'blue', 'fill-outline-color': 'blue', 'fill-opacity': 0.1 } });
     map.addLayer({
-        'id': 'gridlines',
-        'type': 'fill',
-        'source': 'grid',
-        'paint': {
-            'fill-color': 'gray',
-            'fill-outline-color': 'gray',
-            'fill-opacity': 0.25
-        }
+        id: 'contours', type: 'line', source: 'contours', 'source-layer': 'contour',
+        layout: { visibility: 'visible', 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#877b59', 'line-width': 0.25 },
     });
-
     map.addLayer({
-        'id': 'playablesquare',
-        'type': 'fill',
-        'source': 'playable',
-        'paint': {
-            'fill-color': 'green',
-            'fill-outline-color': 'green',
-            'fill-opacity': 0.3
-        }
-    });
-
-    map.addLayer({
-        'id': 'startsquare',
-        'type': 'fill',
-        'source': 'start',
-        'paint': {
-            'fill-color': 'blue',
-            'fill-outline-color': 'blue',
-            'fill-opacity': 0.1
-        }
-    });
-
-    map.addLayer({
-        'id': 'contours',
-        'type': 'line',
-        'source': 'contours',
-        'source-layer': 'contour',
-        'layout': {
-            'visibility': 'visible',
-            'line-join': 'round',
-            'line-cap': 'round'
-        },
-        'paint': {
-            'line-color': '#877b59',
-            'line-width': 0.25
-        }
-    });
-
-    map.addLayer({
-        'id': 'water-streets',
-        'source': 'mapbox-streets',
-        'source-layer': 'water',
-        'type': 'fill',
-        'paint': {
-            'fill-color': 'rgba(66,100,225, 0.3)',
-            'fill-outline-color': 'rgba(33,33,255, 1)'
-        }
+        id: 'water-streets', source: 'mapbox-streets', 'source-layer': 'water', type: 'fill',
+        paint: { 'fill-color': 'rgba(66,100,225, 0.3)', 'fill-outline-color': 'rgba(33,33,255, 1)' },
     });
 }
 
 function setDebug() {
-    // debug: area that is downloaded
     if (debug) {
         map.addSource('debug', {
-            'type': 'geojson',
-            // 'data': turf.squareGrid([0, 0, 0, 0], tileSize, { units: 'kilometers' })
-            'data': turf.bboxPolygon(turf.bbox(turf.lineString([0, 0], [0, 0])))
+            type: 'geojson',
+            data: turf.bboxPolygon(turf.bbox(turf.lineString([0, 0], [0, 0]))),
         });
-
         map.addLayer({
-            'id': 'debugLayer',
-            'type': 'line',
-            'source': 'debug',
-            'paint': {
-                'line-color': 'orangered',
-                'line-width': 1
-            },
-            'layout': {
-                'visibility': 'none'
-            },
+            id: 'debugLayer', type: 'line', source: 'debug',
+            paint: { 'line-color': 'orangered', 'line-width': 1 },
+            layout: { visibility: 'none' },
         });
-
-        document.getElementById('wMap-canvas').style.visibility = 'visible';
-        document.getElementById('dcBox').style.display = 'block';
+        (document.getElementById('wMap-canvas') as HTMLElement).style.visibility = 'visible';
+        (document.getElementById('dcBox') as HTMLElement).style.display = 'block';
     }
 }
 
@@ -258,113 +189,85 @@ function setMouse() {
         map.setPaintProperty('startsquare', 'fill-opacity', 0.3);
         map.setPaintProperty('startsquare', 'fill-color', 'blue');
         mapCanvas.style.cursor = 'move';
-        hideDebugLayer()
+        hideDebugLayer();
     });
-
     map.on('mouseleave', 'startsquare', function () {
         map.setPaintProperty('startsquare', 'fill-color', 'blue');
         map.setPaintProperty('startsquare', 'fill-opacity', 0.1);
         mapCanvas.style.cursor = '';
         saveSettings();
     });
-
-    map.on('mousedown', 'startsquare', function (e) {
-        // Prevent the default map drag behavior.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.on('mousedown', 'startsquare', function (e: any) {
         e.preventDefault();
-
         mapCanvas.style.cursor = 'grab';
-
         map.on('mousemove', onMove);
         map.once('mouseup', onUp);
     });
-
-    map.on('touchstart', 'startsquare', function (e) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    map.on('touchstart', 'startsquare', function (e: any) {
         if (e.points.length !== 1) return;
-
-        // Prevent the default map drag behavior.
         e.preventDefault();
-
         map.on('touchmove', onMove);
         map.once('touchend', onUp);
     });
 }
 
-function showHeightContours(el) {
+function showHeightContours(el: HTMLElement) {
     grid.heightContours = !grid.heightContours;
-    if (grid.heightContours) {
-        el.classList.add('active');
-    } else {
-        el.classList.remove('active');
-    }
+    el.classList.toggle('active', grid.heightContours);
     showHeightLayer();
 }
 
 function showHeightLayer() {
-    let el = document.getElementById('showHeightContours');
-    if (grid.heightContours) {
-        if (!el.classList.contains('active')) el.classList.add('active');
-        map.setLayoutProperty('contours', 'visibility', 'visible');
-    } else {
-        if (el.classList.contains('active')) el.classList.remove('active');
-        map.setLayoutProperty('contours', 'visibility', 'none');
-    }
+    const el = document.getElementById('showHeightContours') as HTMLElement;
+    el.classList.toggle('active', grid.heightContours);
+    map.setLayoutProperty('contours', 'visibility', grid.heightContours ? 'visible' : 'none');
 }
 
-function showWaterContours(el) {
+function showWaterContours(el: HTMLElement) {
     grid.waterContours = !grid.waterContours;
-    if (grid.waterContours) {
-        el.classList.add('active');
-    } else {
-        el.classList.remove('active');
-    }
+    el.classList.toggle('active', grid.waterContours);
     showWaterLayer();
 }
 
 function showWaterLayer() {
-    let el = document.getElementById('showWaterContours');
-    if (grid.waterContours) {
-        if (!el.classList.contains('active')) el.classList.add('active');
-        map.setLayoutProperty('water-streets', 'visibility', 'visible');
-    } else {
-        if (el.classList.contains('active')) el.classList.remove('active');
-        map.setLayoutProperty('water-streets', 'visibility', 'none');
-    }
+    const el = document.getElementById('showWaterContours') as HTMLElement;
+    el.classList.toggle('active', grid.waterContours);
+    map.setLayoutProperty('water-streets', 'visibility', grid.waterContours ? 'visible' : 'none');
 }
 
 function deleteCaches() {
     if (confirm('Delete the caches.\nIs that okay?')) {
         caches.delete('tiles').then(() => {
-            caches.open('tiles').then((data) => cache = data);
+            caches.open('tiles').then((data) => { cache = data; });
         });
     }
 }
 
-function setMapStyle(el) {
-    const layerId = el.id;
-    map.setStyle('mapbox://styles/mapbox/' + layerId);
+function setMapStyle(el: HTMLInputElement) {
+    map.setStyle('mapbox://styles/mapbox/' + el.id);
 }
 
-function setLngLat(mode) {
-    let lngInput = document.getElementById('lngInput');
-    let latInput = document.getElementById('latInput');
+function setLngLat(mode: number) {
+    const lngInput = document.getElementById('lngInput') as HTMLInputElement;
+    const latInput = document.getElementById('latInput') as HTMLInputElement;
 
     switch (mode) {
         case 0:
-            lngInput.value = grid.lng;
-            latInput.value = grid.lat;
+            lngInput.value = String(grid.lng);
+            latInput.value = String(grid.lat);
             break;
         case 1:
             lngInput.value = '';
             latInput.value = '';
             break;
         case 2:
-            if ((lngInput.value) && (latInput.value)) {
+            if (lngInput.value && latInput.value) {
                 grid.lng = parseFloat(lngInput.value);
                 grid.lat = parseFloat(latInput.value);
-
                 setGrid(grid.lng, grid.lat, vmapSize);
                 map.panTo(new mapboxgl.LngLat(grid.lng, grid.lat));
-
                 saveSettings();
                 hideDebugLayer();
                 updateInfopanel();
@@ -379,157 +282,175 @@ function hideDebugLayer() {
     grid.maxHeight = null;
 }
 
-function setGrid(lng, lat, size) {
+function setGrid(lng: number, lat: number, size: number) {
     map.getSource('grid').setData(getGrid(lng, lat, size));
     map.getSource('start').setData(getGrid(lng, lat, size / 9));
     map.getSource('playable').setData(getGrid(lng, lat, size / 9 * 5));
-    grid.zoom = map.getZoom();
+    grid.zoom = map.getZoom() as number;
 }
 
-function getExtent(lng, lat, size = vmapSize) {
-    let dist = Math.sqrt(2 * Math.pow(size / 2, 2));
-    let point = turf.point([lng, lat]);
-    let topleft = turf.destination(point, dist, -45, { units: 'kilometers' }).geometry.coordinates;
-    let bottomright = turf.destination(point, dist, 135, { units: 'kilometers' }).geometry.coordinates;
-    return { 'topleft': topleft, 'bottomright': bottomright };
+function getExtent(lng: number, lat: number, size = vmapSize) {
+    const dist = Math.sqrt(2 * Math.pow(size / 2, 2));
+    const point = turf.point([lng, lat]);
+    const topleft = turf.destination(point, dist, -45, { units: 'kilometers' }).geometry.coordinates as number[];
+    const bottomright = turf.destination(point, dist, 135, { units: 'kilometers' }).geometry.coordinates as number[];
+    return { topleft, bottomright };
 }
 
-function getGrid(lng, lat, size) {
-    let extent = getExtent(lng, lat, size);
-    return turf.squareGrid([extent.topleft[0], extent.topleft[1], extent.bottomright[0], extent.bottomright[1]], tileSize, { units: 'kilometers' });
+function getGrid(lng: number, lat: number, size: number) {
+    const extent = getExtent(lng, lat, size);
+    return turf.squareGrid(
+        [extent.topleft[0], extent.topleft[1], extent.bottomright[0], extent.bottomright[1]],
+        tileSize, { units: 'kilometers' }
+    );
 }
 
-function loadSettings() {
-    let stored = JSON.parse(localStorage.getItem('grid')) || {};
-    
-    // San Francisco
-    stored.lng = parseFloat(stored.lng) || -122.43877;
-    stored.lat = parseFloat(stored.lat) || 37.75152;
-    
-    stored.zoom = parseFloat(stored.zoom) || 11.0;
-    
-    stored.minHeight = parseFloat(stored.minHeight) || 0;
-    stored.maxHeight = parseFloat(stored.maxHeight) || 0;
-    
-    stored.heightContours = stored.heightContours || false;
-    stored.waterContours = stored.waterContours || false;
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface GridSettings {
+    lng: number;
+    lat: number;
+    zoom: number;
+    minHeight: number | null;
+    maxHeight: number | null;
+    heightContours: boolean;
+    waterContours: boolean;
+    waterDepth: number;
+    tiltHeight: number;
+    drawGrid: boolean;
+    drawStreams: boolean;
+    drawMarker: boolean;
+    blurPasses: number;
+    blurPostPasses: number;
+    plainsHeight: number;
+    streamDepth: number;
+    gravityCenter: number;
+    levelCorrection: number;
+    [key: string]: unknown;
+}
+
+function loadSettings(): GridSettings {
+    const stored = (JSON.parse(localStorage.getItem('grid') ?? 'null') ?? {}) as Partial<GridSettings>;
+
+    const wd = parseInt(String(stored.waterDepth)) || defaultWaterdepth;
+    const grid: GridSettings = {
+        lng: parseFloat(String(stored.lng)) || -122.43877,
+        lat: parseFloat(String(stored.lat)) || 37.75152,
+        zoom: parseFloat(String(stored.zoom)) || 11.0,
+        minHeight: typeof stored.minHeight === 'number' ? stored.minHeight : 0,
+        maxHeight: typeof stored.maxHeight === 'number' ? stored.maxHeight : 0,
+        heightContours: stored.heightContours ?? false,
+        waterContours: stored.waterContours ?? false,
+        waterDepth: wd,
+        tiltHeight: parseInt(String(stored.tiltHeight)) || Math.floor(wd / 2),
+        drawGrid: stored.drawGrid ?? false,
+        drawStreams: stored.drawStreams ?? false,
+        drawMarker: stored.drawMarker ?? false,
+        blurPasses: parseInt(String(stored.blurPasses)) || 7,
+        blurPostPasses: parseInt(String(stored.blurPostPasses)) || 3,
+        plainsHeight: parseInt(String(stored.plainsHeight)) || 140,
+        streamDepth: parseInt(String(stored.streamDepth)) || 140,
+        gravityCenter: parseInt(String(stored.gravityCenter)) || 0,
+        levelCorrection: parseInt(String(stored.levelCorrection)) || 0,
+    };
 
     // TODO: do not set global vars!
-    document.getElementById('waterDepth').value = parseInt(stored.waterDepth) || defaultWaterdepth;
-    document.getElementById('tiltHeight').value = parseInt(stored.tiltHeight) || parseInt(stored.waterDepth / 2);
+    (document.getElementById('waterDepth') as HTMLInputElement).value = String(grid.waterDepth);
+    (document.getElementById('tiltHeight') as HTMLInputElement).value = String(grid.tiltHeight);
+    (document.getElementById('drawGrid') as HTMLInputElement).checked = grid.drawGrid;
+    (document.getElementById('drawStrm') as HTMLInputElement).checked = grid.drawStreams;
+    (document.getElementById('drawMarker') as HTMLInputElement).checked = grid.drawMarker;
+    (document.getElementById('blurPasses') as HTMLInputElement).value = String(grid.blurPasses);
+    (document.getElementById('blurPostPasses') as HTMLInputElement).value = String(grid.blurPostPasses);
+    (document.getElementById('plainsHeight') as HTMLInputElement).value = String(grid.plainsHeight);
+    (document.getElementById('streamDepth') as HTMLInputElement).value = String(grid.streamDepth);
 
-    document.getElementById('drawGrid').checked = stored.drawGrid || false;
-    document.getElementById('drawStrm').checked = stored.drawStreams || false;
-    document.getElementById('drawMarker').checked = stored.drawMarker || false;
-
-    document.getElementById('blurPasses').value = parseInt(stored.blurPasses) || 7;
-    document.getElementById('blurPostPasses').value = parseInt(stored.blurPostPasses) || 3;
-    document.getElementById('plainsHeight').value = parseInt(stored.plainsHeight) || 140;
-    document.getElementById('streamDepth').value = parseInt(stored.streamDepth) || 140;
-
-    return stored;
+    return grid;
 }
 
 function saveSettings() {
-    grid.zoom = map.getZoom();
-
-    grid.drawGrid = document.getElementById('drawGrid').checked;
-    grid.waterDepth = parseInt(document.getElementById('waterDepth').value);
-    grid.drawStreams = document.getElementById('drawStrm').checked;
-    grid.drawMarker = document.getElementById('drawMarker').checked;
-    
-    grid.plainsHeight = parseInt(document.getElementById('plainsHeight').value);
-    grid.blurPasses = parseInt(document.getElementById('blurPasses').value);
-    grid.blurPostPasses = parseInt(document.getElementById('blurPostPasses').value);
-    grid.streamDepth = parseInt(document.getElementById('streamDepth').value);
-
-    grid.gravityCenter = scope.gravityCenter;
-    grid.tiltHeight = parseInt(document.getElementById('tiltHeight').value);
-
-    grid.levelCorrection = scope.levelCorrection;
-
+    grid.zoom = map.getZoom() as number;
+    grid.drawGrid = (document.getElementById('drawGrid') as HTMLInputElement).checked;
+    grid.waterDepth = parseInt((document.getElementById('waterDepth') as HTMLInputElement).value);
+    grid.drawStreams = (document.getElementById('drawStrm') as HTMLInputElement).checked;
+    grid.drawMarker = (document.getElementById('drawMarker') as HTMLInputElement).checked;
+    grid.plainsHeight = parseInt((document.getElementById('plainsHeight') as HTMLInputElement).value);
+    grid.blurPasses = parseInt((document.getElementById('blurPasses') as HTMLInputElement).value);
+    grid.blurPostPasses = parseInt((document.getElementById('blurPostPasses') as HTMLInputElement).value);
+    grid.streamDepth = parseInt((document.getElementById('streamDepth') as HTMLInputElement).value);
+    grid.gravityCenter = parseInt(String(scope['gravityCenter'])) || 0;
+    grid.tiltHeight = parseInt((document.getElementById('tiltHeight') as HTMLInputElement).value);
+    grid.levelCorrection = parseInt(String(scope['levelCorrection'])) || 0;
     localStorage.setItem('grid', JSON.stringify(grid));
 }
 
-/**
- * @template T
- * @param {number} rows
- * @param {T} [def]
- */
-function Create2DArray(rows, def = null) {
-    let arr = new Array(rows);
+function Create2DArray<T>(rows: number, def: T | null = null): (T | null)[][] {
+    const arr: (T | null)[][] = new Array(rows) as (T | null)[][];
     for (let i = 0; i < rows; i++) {
-        arr[i] = new Array(rows).fill(def);
+        arr[i] = new Array(rows).fill(def) as (T | null)[];
     }
     return arr;
 }
 
-// for debugging maps (2 dimensinal array), and 1 dimensional arrays
-// use a format that is understood by excel (comma delimeted)
-// and locale of the browser (and thus excel i presume)
-function exportToCSV(mapData) {
-    let csvRows = [];
-    function isNumber(n) { return !isNaN(parseFloat(n)) && !isNaN(n - 0) }
+// for debugging maps (2 dimensional array), and 1 dimensional arrays
+// use a format that is understood by excel (comma delimited)
+// and locale of the browser (and thus excel presumably)
+function exportToCSV(mapData: (number | number[] | null)[] | number[][]) {
+    const csvRows: string[] = [];
+    function isNumber(n: unknown): n is number { return !isNaN(parseFloat(String(n))) && !isNaN(Number(n) - 0); }
 
-    for(var i=0, l=mapData.length; i<l; ++i) {
-        let val = mapData[i];
-        // test for array dimension
-        if(Array.isArray(val)) {
-            if(isNumber(val[0])) {
-                csvRows.push(val.map(x => x.toLocaleString(undefined)).join('\t')); 
+    for (let i = 0, l = mapData.length; i < l; ++i) {
+        const val = mapData[i];
+        if (Array.isArray(val)) {
+            if (isNumber(val[0])) {
+                csvRows.push((val as number[]).map(x => x.toLocaleString(undefined)).join('\t'));
             } else {
                 csvRows.push(val.join('\t'));
             }
-        } else { // 1 dimensional array
-            if(isNumber(val)) {
+        } else {
+            if (isNumber(val)) {
                 csvRows.push(val.toLocaleString(undefined));
             } else {
-                csvRows.push(val);
-            }           
+                csvRows.push(String(val));
+            }
         }
     }
 
-    let csvString = csvRows.join('\r\n');
-    let a = document.createElement('a');
-
-    a.href        = 'data:attachment/csv,' +  encodeURIComponent(csvString);
-    a.target      = '_blank';
-    a.download    = 'myFile.csv';
-
+    const csvString = csvRows.join('\r\n');
+    const a = document.createElement('a');
+    a.href = 'data:attachment/csv,' + encodeURIComponent(csvString);
+    a.target = '_blank';
+    a.download = 'myFile.csv';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
 }
 
-function togglePanel(index) {
-    let isOpens = [];
+// suppress unused-variable warning for exportToCSV (available for debug console use)
+void exportToCSV;
+
+function togglePanel(index: number) {
+    const isOpens: boolean[] = [];
     for (let i = 0; i < panels.length; i++) {
-        isOpens.push(panels[i].classList.contains('slide-in'));
+        isOpens.push((panels[i] as HTMLElement).classList.contains('slide-in'));
     }
     for (let i = 0; i < panels.length; i++) {
-        if (isOpens[i] && (i != index)) {
-            panels[i].setAttribute('class', 'panel slide-out');
-            icons[i].setAttribute('class', iconClass[i]);
+        if (isOpens[i] && i !== index) {
+            (panels[i] as HTMLElement).setAttribute('class', 'panel slide-out');
+            (icons[i] as HTMLElement).setAttribute('class', iconClass[i]);
         }
     }
+    (panels[index] as HTMLElement).setAttribute('class', isOpens[index] ? 'panel slide-out' : 'panel slide-in');
+    (icons[index] as HTMLElement).setAttribute('class', isOpens[index] ? iconClass[index] : 'icon ti ti-info-circle');
 
-    panels[index].setAttribute('class', isOpens[index] ? 'panel slide-out' : 'panel slide-in');
-    icons[index].setAttribute('class', isOpens[index] ? iconClass[index] : 'icon ti ti-info-circle');
-
-    // initial settings when each panel is opened
     switch (index) {
         case 0:
-            if (!isOpens[0]) {
-                getHeightmap(2);
-            }
+            if (!isOpens[0]) { getHeightmap(2); }
             break;
         case 1:
             if (!isOpens[1]) {
-                let styleName = map.getStyle().metadata['mapbox:origin'];
-                if (!(styleName)) {
-                    styleName = 'satellite-v9';
-                }
-                document.getElementById(styleName).checked = true;
+                const styleName = ((map.getStyle().metadata as Record<string, string>)['mapbox:origin']) || 'satellite-v9';
+                (document.getElementById(styleName) as HTMLInputElement).checked = true;
             }
             break;
         case 2:
@@ -538,289 +459,236 @@ function togglePanel(index) {
     }
 }
 
-function sanatizeMap(map, xOffset, yOffset) {
+function sanatizeMap(heightmap: (number | null)[][], xOffset: number, yOffset: number): number[][] {
     const citiesmapSize = 1081;
-    let sanatizedMap = Create2DArray(citiesmapSize, 0);
+    const sanatizedMap = Create2DArray<number>(citiesmapSize, 0) as number[][];
+    let lowestPositive = 100000;
 
-    let lowestPositve = 100000;
-
-    // pass 1: normalize the map, and determine the lowestPositve
     for (let y = yOffset; y < yOffset + citiesmapSize; y++) {
         for (let x = xOffset; x < xOffset + citiesmapSize; x++) {
-            let h = map[y][x]; 
-            if(h >= 0 && h < lowestPositve) {
-                lowestPositve = h;
-            }                  
+            const h = heightmap[y][x] ?? 0;
+            if (h >= 0 && h < lowestPositive) { lowestPositive = h; }
             sanatizedMap[y - yOffset][x - xOffset] = h;
         }
     }
-
-    // pass 2: fix negative heights artifact in mapbox maps
     for (let y = 0; y < citiesmapSize; y++) {
         for (let x = 0; x < citiesmapSize; x++) {
-            let h = sanatizedMap[y][x];
-            if(h < 0) {
-                sanatizedMap[y][x] = lowestPositve;                
-            }
+            if (sanatizedMap[y][x] < 0) { sanatizedMap[y][x] = lowestPositive; }
         }
     }
-
     return sanatizedMap;
 }
 
-function sanatizeWatermap(map, xOffset, yOffset) {
+function sanatizeWatermap(watermap: (number | null)[][], xOffset: number, yOffset: number): number[][] {
     const citiesmapSize = 1081;
-    let watermap = Create2DArray(citiesmapSize, 0);
-
+    const result = Create2DArray<number>(citiesmapSize, 0) as number[][];
     for (let y = yOffset; y < yOffset + citiesmapSize; y++) {
-        for (let x = xOffset; x < yOffset + citiesmapSize; x++) {
-            let h = map[y][x];
-            watermap[y - yOffset][x - xOffset] = h;
+        for (let x = xOffset; x < xOffset + citiesmapSize; x++) {
+            result[y - yOffset][x - xOffset] = watermap[y][x] ?? 0;
         }
     }
-
-    return watermap;
+    return result;
 }
 
-function calcMinMaxHeight(map) {
-    const maxY = map.length; 
-    const maxX = map[0].length;
-
-    const heights = {min: 100000, max: -100000}
-
+function calcMinMaxHeight(heightmap: number[][]): { min: number; max: number } {
+    const maxY = heightmap.length;
+    const maxX = heightmap[0].length;
+    const heights = { min: 100000, max: -100000 };
     for (let y = 0; y < maxY; y++) {
-        for (let x = 0; x < maxX; x++) {            
-            let h = map[y][x];
+        for (let x = 0; x < maxX; x++) {
+            const h = heightmap[y][x];
             if (h > heights.max) heights.max = h;
-            if (h < heights.min) heights.min = h;            
+            if (h < heights.min) heights.min = h;
         }
     }
-
     heights.min = heights.min / 10;
     heights.max = heights.max / 10;
-    
     return heights;
 }
 
 function updateInfopanel() {
-    let rhs = 17.28 / mapSize * 100;
-     
-    document.getElementById('rHeightscale').innerHTML = rhs.toFixed(1);
-    document.getElementById('lng').innerHTML = grid.lng.toFixed(5);
-    document.getElementById('lat').innerHTML = grid.lat.toFixed(5);
-    document.getElementById('minh').innerHTML = grid.minHeight;
-    document.getElementById('maxh').innerHTML = grid.maxHeight;
+    const rhs = 17.28 / mapSize * 100;
+    (document.getElementById('rHeightscale') as HTMLElement).innerHTML = rhs.toFixed(1);
+    (document.getElementById('lng') as HTMLElement).innerHTML = grid.lng.toFixed(5);
+    (document.getElementById('lat') as HTMLElement).innerHTML = grid.lat.toFixed(5);
+    (document.getElementById('minh') as HTMLElement).innerHTML = String(grid.minHeight);
+    (document.getElementById('maxh') as HTMLElement).innerHTML = String(grid.maxHeight);
 }
 
-function zoomIn() {
-    map.zoomIn();
-}
+function zoomIn() { map.zoomIn(); }
+function zoomOut() { map.zoomOut(); }
 
-function zoomOut() {
-    map.zoomOut();
-}
-
-function changeMapsize(el) {
-    mapSize = el.value / 1;
+function changeMapsize(el: HTMLInputElement) {
+    mapSize = el.valueAsNumber;
     vmapSize = mapSize * 1.05;
     tileSize = mapSize / 9;
     setGrid(grid.lng, grid.lat, vmapSize);
-
     grid.minHeight = null;
     grid.maxHeight = null;
     updateInfopanel();
 }
 
 function setBaseLevel() {
-    if(grid.minHeight === null) {
-       new Promise((resolve) => {
-            getHeightmap(2, resolve);
-        }).then(() => {
-            scope.baseLevel = grid.minHeight;            
-        });
-    }
-    else {
-        scope.baseLevel = grid.minHeight;
+    if (grid.minHeight === null) {
+        new Promise<void>((resolve) => { getHeightmap(2, resolve); })
+            .then(() => { scope['baseLevel'] = grid.minHeight; });
+    } else {
+        scope['baseLevel'] = grid.minHeight;
     }
     saveSettings();
 }
 
 function setHeightScale() {
-    if(grid.maxHeight === null) {
-        new Promise((resolve) => {
-            getHeightmap(2, resolve);
-        }).then(() => {
-            scope.heightScale = Math.min(250, Math.floor((1024 - scope.waterDepth) / (grid.maxHeight - scope.baseLevel) * 100));
-        });
+    const computeScale = () =>
+        Math.min(250, Math.floor((1024 - Number(scope['waterDepth'])) / ((grid.maxHeight ?? 0) - Number(scope['baseLevel'])) * 100));
+    if (grid.maxHeight === null) {
+        new Promise<void>((resolve) => { getHeightmap(2, resolve); })
+            .then(() => { scope['heightScale'] = computeScale(); });
     } else {
-        scope.heightScale = Math.min(250, Math.floor((1024 - scope.waterDepth) / (grid.maxHeight - scope.baseLevel) * 100));
+        scope['heightScale'] = computeScale();
     }
     saveSettings();
 }
 
-function incPb(el, value = 1) {
-    let v = el.value + value;
-    el.value = v;
+function incPb(el: HTMLProgressElement, value = 1) {
+    el.value = el.value + value;
 }
 
-function getHeightmap(mode = 0, callback) {
+function getHeightmap(mode = 0, callback?: () => void) {
     pbElement.value = 0;
     pbElement.style.visibility = 'visible';
 
-    saveSettings(false);
+    saveSettings();
 
-    // get the extent of the current map
-    // in heightmap, each pixel is treated as vertex data, and 1081px represents 1080 faces
-    // therefore, "1px = 16m" when the map size is 17.28km
-    let extent = getExtent(grid.lng, grid.lat, mapSize / 1080 * 1081);
+    const extent = getExtent(grid.lng, grid.lat, mapSize / 1080 * 1081);
 
-    // zoom is 13 in principle
     let zoom = 13;
-
     incPb(pbElement);
-    // get a tile that covers the top left and bottom right (for the tile count calculation)
+
     let x = long2tile(extent.topleft[0], zoom);
     let y = lat2tile(extent.topleft[1], zoom);
-    let x2 = long2tile(extent.bottomright[0], zoom);
-    let y2 = lat2tile(extent.bottomright[1], zoom);
+    const x2 = long2tile(extent.bottomright[0], zoom);
+    const y2 = lat2tile(extent.bottomright[1], zoom);
 
-    // get the required tile count in Zoom 13
     let tileCnt = Math.max(x2 - x + 1, y2 - y + 1);
 
-    // fixed in high latitudes: adjusted the tile count to 6 or less
-    // because Terrain RGB tile distance depends on latitude
-    // don't need too many tiles
     incPb(pbElement);
     if (tileCnt > 6) {
         let z = zoom;
-        let tx, ty, tx2, ty2, tc;
+        let tx: number, ty: number, tc: number;
         do {
             z--;
             tx = long2tile(extent.topleft[0], z);
             ty = lat2tile(extent.topleft[1], z);
-            tx2 = long2tile(extent.bottomright[0], z);
-            ty2 = lat2tile(extent.bottomright[1], z);
+            const tx2 = long2tile(extent.bottomright[0], z);
+            const ty2 = lat2tile(extent.bottomright[1], z);
             tc = Math.max(tx2 - tx + 1, ty2 - ty + 1);
             incPb(pbElement);
         } while (tc > 6);
-        // reflect the fixed result
         x = tx;
         y = ty;
         zoom = z;
         tileCnt = tc;
     }
 
-    let tileLng = tile2long(x, zoom);
-    let tileLat = tile2lat(y, zoom);
+    const tileLng = tile2long(x, zoom);
+    const tileLat = tile2lat(y, zoom);
+    const tileLng2 = tile2long(x + tileCnt, zoom);
+    const tileLat2 = tile2lat(y + tileCnt, zoom);
 
-    let tileLng2 = tile2long(x + tileCnt, zoom);
-    let tileLat2 = tile2lat(y + tileCnt, zoom);
+    const distance = (turf.distance(turf.point([tileLng, tileLat]), turf.point([tileLng2, tileLat2]), { units: 'kilometers' }) as number) / Math.SQRT2;
+    const topDistance = turf.distance(turf.point([tileLng, tileLat]), turf.point([tileLng, extent.topleft[1]]), { units: 'kilometers' }) as number;
+    const leftDistance = turf.distance(turf.point([tileLng, tileLat]), turf.point([extent.topleft[0], tileLat]), { units: 'kilometers' }) as number;
 
-    // get the length of one side of the tiles extent
-    let distance = turf.distance(turf.point([tileLng, tileLat]), turf.point([tileLng2, tileLat2]), { units: 'kilometers' }) / Math.SQRT2;
-
-    // find out the center position of the area we want inside the tiles
-    let topDistance = turf.distance(turf.point([tileLng, tileLat]), turf.point([tileLng, extent.topleft[1]]), { units: 'kilometers' });
-    let leftDistance = turf.distance(turf.point([tileLng, tileLat]), turf.point([extent.topleft[0], tileLat]), { units: 'kilometers' });
-
-    // create the tiles empty array
-    let tiles = Create2DArray(tileCnt);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tiles = Create2DArray<any>(tileCnt);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vTiles = Create2DArray<any>(tileCnt);
 
     if (debug) {
         map.setLayoutProperty('debugLayer', 'visibility', 'visible');
-        let line = turf.lineString([[tileLng, tileLat], [tileLng2, tileLat2]]);
+        const line = turf.lineString([[tileLng, tileLat], [tileLng2, tileLat2]]);
         map.getSource('debug').setData(turf.bboxPolygon(turf.bbox(line)));
     }
 
-    // download the tiles
     for (let i = 0; i < tileCnt; i++) {
         for (let j = 0; j < tileCnt; j++) {
             incPb(pbElement);
-            let url = 'https://api.mapbox.com/v4/mapbox.terrain-rgb/' + zoom + '/' + (x + j) + '/' + (y + i) + '@2x.pngraw?access_token=' + mapboxgl.accessToken;
-            let woQUrl = 'https://api.mapbox.com/v4/mapbox.terrain-rgb/' + zoom + '/' + (x + j) + '/' + (y + i) + '@2x.pngraw';
-
-            downloadPngToTile(url, woQUrl).then((png) => tiles[i][j] = png);
-
+            const url = 'https://api.mapbox.com/v4/mapbox.terrain-rgb/' + zoom + '/' + (x + j) + '/' + (y + i) + '@2x.pngraw?access_token=' + mapboxgl.accessToken;
+            const woQUrl = 'https://api.mapbox.com/v4/mapbox.terrain-rgb/' + zoom + '/' + (x + j) + '/' + (y + i) + '@2x.pngraw';
+            downloadPngToTile(url, woQUrl).then((png) => { tiles[i][j] = png; });
         }
     }
-
-    // download pbf to vTiles
-    var vTiles = Create2DArray(tileCnt);
 
     for (let i = 0; i < tileCnt; i++) {
         for (let j = 0; j < tileCnt; j++) {
             incPb(pbElement);
-            let url = 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/' + zoom + '/' + (x + j) + '/' + (y + i) + '.vector.pbf?access_token=' + mapboxgl.accessToken;
-            let woQUrl = 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/' + zoom + '/' + (x + j) + '/' + (y + i) + '.vector.pbf';
-
-            downloadPbfToTile(url, woQUrl).then((data) => vTiles[i][j] = data);
+            const url = 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/' + zoom + '/' + (x + j) + '/' + (y + i) + '.vector.pbf?access_token=' + mapboxgl.accessToken;
+            const woQUrl = 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/' + zoom + '/' + (x + j) + '/' + (y + i) + '.vector.pbf';
+            downloadPbfToTile(url, woQUrl).then((data) => { vTiles[i][j] = data; });
         }
     }
 
-    // wait for the download to complete
     let ticks = 0;
-    let timer = window.setInterval(function () {
+    const timer = window.setInterval(function () {
         ticks++;
         incPb(pbElement);
 
         if (isDownloadComplete(tiles, vTiles)) {
             console.log('download ok');
             clearInterval(timer);
-            let citiesmap, png, canvas, url;
 
-            // heightmap size corresponds to 1081px map size
-            let heightmap = toHeightmap(tiles, distance);
-
-            // heightmap edge to map edge distance
-            let xOffset = Math.round(leftDistance / distance * heightmap.length);
-            let yOffset = Math.round(topDistance / distance * heightmap.length);
-
-            let sanatizedMap = sanatizeMap(heightmap, xOffset, yOffset);
-
-            let heights = calcMinMaxHeight(sanatizedMap); 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const heightmap = toHeightmap(tiles as any[][], distance);
+            const xOffset = Math.round(leftDistance / distance * heightmap.length);
+            const yOffset = Math.round(topDistance / distance * heightmap.length);
+            const sanatizedMap = sanatizeMap(heightmap, xOffset, yOffset);
+            const heights = calcMinMaxHeight(sanatizedMap);
             grid.minHeight = heights.min;
             grid.maxHeight = heights.max;
 
             pbElement.value = 500;
-            // callback after height calculation is completed
             if (typeof callback === 'function') callback();
 
-            let watermap = sanatizeWatermap(toWatermap(vTiles, heightmap.length), xOffset, yOffset);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const watermap = sanatizeWatermap(toWatermap(vTiles as any[][], heightmap.length), xOffset, yOffset);
 
             switch (mode) {
-                case 0:
-                    // never draw a grid on a raw heightmap
-                    let savedDrawGrid = document.getElementById('drawGrid').checked;
-                    document.getElementById('drawGrid').checked = false;
-                    citiesmap = toCitiesmap(sanatizedMap, watermap);
-                    download('heightmap.raw', citiesmap);
-                    document.getElementById('drawGrid').checked = savedDrawGrid;
+                case 0: {
+                    const savedDrawGrid = (document.getElementById('drawGrid') as HTMLInputElement).checked;
+                    (document.getElementById('drawGrid') as HTMLInputElement).checked = false;
+                    const citiesmap0 = toCitiesmap(sanatizedMap, watermap);
+                    download('heightmap.raw', new Uint8Array(citiesmap0.buffer as ArrayBuffer));
+                    (document.getElementById('drawGrid') as HTMLInputElement).checked = savedDrawGrid;
                     break;
-                case 1:
-                    citiesmap = toCitiesmap(sanatizedMap, watermap);
-                    png = UPNG.encodeLL([citiesmap], 1081, 1081, 1, 0, 16);
-                    download('heightmap.png', png);
+                }
+                case 1: {
+                    const citiesmap1 = toCitiesmap(sanatizedMap, watermap);
+                    const png1 = UPNG.encodeLL([citiesmap1.buffer as ArrayBuffer], 1081, 1081, 1, 0, 16);
+                    download('heightmap.png', png1);
                     break;
+                }
                 case 2:
                     updateInfopanel();
                     break;
-                case 3:
-                    citiesmap = toCitiesmap(sanatizedMap, watermap);
-                    png = UPNG.encodeLL([citiesmap], 1081, 1081, 1, 0, 16);
-                    downloadAsZip(png, 1);
+                case 3: {
+                    const citiesmap3 = toCitiesmap(sanatizedMap, watermap);
+                    const png3 = UPNG.encodeLL([citiesmap3.buffer as ArrayBuffer], 1081, 1081, 1, 0, 16);
+                    downloadAsZip(png3, 1);
                     break;
-                case 255:
-                    canvas = toTerrainRGB(heightmap);
-                    url = canvas.toDataURL('image/png').replace('image/png', 'image/octet-stream');
-                    download('tiles.png', null, url);
+                }
+                case 255: {
+                    const canvas255 = toTerrainRGB(heightmap);
+                    const url255 = canvas255.toDataURL('image/png').replace('image/png', 'image/octet-stream');
+                    download('tiles.png', null, url255);
                     break;
+                }
             }
             console.log('complete in ', ticks * 10, ' ms');
             pbElement.style.visibility = 'hidden';
             pbElement.value = 0;
         }
 
-        // timeout!
         if (ticks >= 4096) {
             clearInterval(timer);
             console.error('timeout!');
@@ -829,120 +697,87 @@ function getHeightmap(mode = 0, callback) {
     }, 10);
 }
 
-
 async function getOSMData() {
-    let bounds = getExtent(grid.lng, grid.lat, mapSize);
-    let minLng = Math.min(bounds.topleft[0], bounds.bottomright[0]);
-    let minLat = Math.min(bounds.topleft[1], bounds.bottomright[1]);
-    let maxLng = Math.max(bounds.topleft[0], bounds.bottomright[0]);
-    let maxLat = Math.max(bounds.topleft[1], bounds.bottomright[1]);
-
-    let url = 'https://overpass-api.de/api/map?bbox='
-        + minLng + ','
-        + minLat + ','
-        + maxLng + ','
-        + maxLat;
-
+    const bounds = getExtent(grid.lng, grid.lat, mapSize);
+    const minLng = Math.min(bounds.topleft[0], bounds.bottomright[0]);
+    const minLat = Math.min(bounds.topleft[1], bounds.bottomright[1]);
+    const maxLng = Math.max(bounds.topleft[0], bounds.bottomright[0]);
+    const maxLat = Math.max(bounds.topleft[1], bounds.bottomright[1]);
+    const url = 'https://overpass-api.de/api/map?bbox=' + minLng + ',' + minLat + ',' + maxLng + ',' + maxLat;
     try {
         const response = await fetch(url);
         if (response.ok) {
-            let osm= await response.blob();
+            const osm = await response.blob();
             download('map.osm', osm);
-            console.log(bounds.topleft[0], bounds.topleft[1], bounds.bottomright[0], bounds.bottomright[1]);
         } else {
-            throw new Error('download map error:', response.status);
+            throw new Error('download map error: ' + String(response.status));
         }
-    } catch (e) {
-        console.log(e.message);
-    }
+    } catch (e) { console.log((e as Error).message); }
 }
 
-
 async function getMapImage() {
-    let bounds = getExtent(grid.lng, grid.lat, mapSize);
-    let minLng = Math.min(bounds.topleft[0], bounds.bottomright[0]);
-    let minLat = Math.min(bounds.topleft[1], bounds.bottomright[1]);
-    let maxLng = Math.max(bounds.topleft[0], bounds.bottomright[0]);
-    let maxLat = Math.max(bounds.topleft[1], bounds.bottomright[1]);
-
-    let styleName = 'satellite-v9';
-
-    let url = 'https://api.mapbox.com/styles/v1/mapbox/'
-        + styleName + '/static/['
-        + minLng + ','
-        + minLat + ','
-        + maxLng + ','
-        + maxLat + ']/1280x1280@2x?access_token='
-        + mapboxgl.accessToken;
-
+    const bounds = getExtent(grid.lng, grid.lat, mapSize);
+    const minLng = Math.min(bounds.topleft[0], bounds.bottomright[0]);
+    const minLat = Math.min(bounds.topleft[1], bounds.bottomright[1]);
+    const maxLng = Math.max(bounds.topleft[0], bounds.bottomright[0]);
+    const maxLat = Math.max(bounds.topleft[1], bounds.bottomright[1]);
+    const url = 'https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/[' + minLng + ',' + minLat + ',' + maxLng + ',' + maxLat + ']/1280x1280@2x?access_token=' + mapboxgl.accessToken;
     try {
         const response = await fetch(url);
         if (response.ok) {
-            let png = await response.blob();
+            const png = await response.blob();
             download('map.png', png);
-            console.log(bounds.topleft[0], bounds.topleft[1], bounds.bottomright[0], bounds.bottomright[1]);
         } else {
-            throw new Error('download map error:', response.status);
+            throw new Error('download map error: ' + String(response.status));
         }
-    } catch (e) {
-        console.log(e.message);
-    }
+    } catch (e) { console.log((e as Error).message); }
 }
 
 function autoSettings(withMap = true) {
-    scope.mapSize = 17.28;
-    scope.waterDepth = defaultWaterdepth;
-
-    mapSize = scope.mapSize / 1;
+    scope['mapSize'] = 17.28;
+    scope['waterDepth'] = defaultWaterdepth;
+    mapSize = Number(scope['mapSize']);
     vmapSize = mapSize * 1.05;
     tileSize = mapSize / 9;
 
     if (withMap) {
-        new Promise((resolve) => {
-            getHeightmap(2, resolve);
-        }).then(() => {
-            scope.baseLevel = grid.minHeight;
-            scope.heightScale = Math.min(250, Math.floor((1024 - scope.waterDepth) / (grid.maxHeight - scope.baseLevel) * 100));            
+        new Promise<void>((resolve) => { getHeightmap(2, resolve); }).then(() => {
+            scope['baseLevel'] = grid.minHeight;
+            scope['heightScale'] = Math.min(250, Math.floor((1024 - Number(scope['waterDepth'])) / ((grid.maxHeight ?? 0) - Number(scope['baseLevel'])) * 100));
         });
     }
 
     setGrid(grid.lng, grid.lat, vmapSize);
-
-    document.getElementById('drawStrm').checked = true;
-
-    document.getElementById('drawMarker').checked = true;
-    document.getElementById('drawGrid').checked = true;
-
-    document.getElementById('plainsHeight').value = 140;
-    document.getElementById('blurPasses').value = 10;
-    document.getElementById('blurPostPasses').value = 2;
-    document.getElementById('streamDepth').value = 7;
+    (document.getElementById('drawStrm') as HTMLInputElement).checked = true;
+    (document.getElementById('drawMarker') as HTMLInputElement).checked = true;
+    (document.getElementById('drawGrid') as HTMLInputElement).checked = true;
+    (document.getElementById('plainsHeight') as HTMLInputElement).value = '140';
+    (document.getElementById('blurPasses') as HTMLInputElement).value = '10';
+    (document.getElementById('blurPostPasses') as HTMLInputElement).value = '2';
+    (document.getElementById('streamDepth') as HTMLInputElement).value = '7';
 }
 
-function isDownloadComplete(tiles, vTiles) {
-    let tileNum = tiles.length;
+function isDownloadComplete(tiles: (unknown | null)[][], vTiles: (unknown | null)[][]) {
+    const tileNum = tiles.length;
     for (let i = 0; i < tileNum; i++) {
         for (let j = 0; j < tileNum; j++) {
-            if (!(tiles[i][j]) || !(vTiles[i][j])) return false;
+            if (!tiles[i][j] || !vTiles[i][j]) return false;
         }
     }
     return true;
 }
 
-function toWatermap(vTiles, length) {
-    // extract feature geometry from VectorTileFeature in VectorTile.
-    // draw the polygons of the water area from the feature geometries and return as a water area map.
-
-    let tileCnt = vTiles.length;
-    let canvas = document.getElementById('wMap-canvas');
-    const ctx = canvas.getContext('2d');
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toWatermap(vTiles: any[][], length: number): (number | null)[][] {
+    const tileCnt = vTiles.length;
+    const canvas = document.getElementById('wMap-canvas') as HTMLCanvasElement;
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 
     canvas.width = length;
     canvas.height = length;
 
-    let coef = length / (tileCnt * 4096);     // vTiles[][].layers.water.feature(0).extent = 4096 (default)
+    const coef = length / (tileCnt * 4096);
 
-    // water
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, length, length);
     ctx.fillStyle = '#000000';
@@ -950,10 +785,10 @@ function toWatermap(vTiles, length) {
 
     for (let ty = 0; ty < tileCnt; ty++) {
         for (let tx = 0; tx < tileCnt; tx++) {
-            if (typeof vTiles[ty][tx] !== "boolean") {
+            if (typeof vTiles[ty][tx] !== 'boolean') {
                 if (vTiles[ty][tx].layers.water) {
-                    let geo = vTiles[ty][tx].layers.water.feature(0).loadGeometry();
-
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const geo = vTiles[ty][tx].layers.water.feature(0).loadGeometry() as any[][];
                     for (let i = 0; i < geo.length; i++) {
                         ctx.moveTo(Math.round(geo[i][0].x * coef + (tx * length / tileCnt)), Math.round(geo[i][0].y * coef + (ty * length / tileCnt)));
                         for (let j = 1; j < geo[i].length; j++) {
@@ -967,18 +802,16 @@ function toWatermap(vTiles, length) {
     ctx.closePath();
     ctx.fill();
 
-    if (document.getElementById('drawStrm').checked) {
-        // waterway
+    if ((document.getElementById('drawStrm') as HTMLInputElement).checked) {
         ctx.strokeStyle = '#000000';
         ctx.lineWidth = 1;
         ctx.beginPath();
-
         for (let ty = 0; ty < tileCnt; ty++) {
             for (let tx = 0; tx < tileCnt; tx++) {
-                if (typeof vTiles[ty][tx] !== "boolean") {
+                if (typeof vTiles[ty][tx] !== 'boolean') {
                     if (vTiles[ty][tx].layers.waterway) {
-                        let geo = vTiles[ty][tx].layers.waterway.feature(0).loadGeometry();
-
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const geo = vTiles[ty][tx].layers.waterway.feature(0).loadGeometry() as any[][];
                         for (let i = 0; i < geo.length; i++) {
                             ctx.moveTo(Math.round(geo[i][0].x * coef + (tx * length / tileCnt)), Math.round(geo[i][0].y * coef + (ty * length / tileCnt)));
                             for (let j = 1; j < geo[i].length; j++) {
@@ -992,448 +825,275 @@ function toWatermap(vTiles, length) {
         ctx.stroke();
     }
 
-    let watermap = Create2DArray(length, 1);
-    let img = ctx.getImageData(0, 0, length, length);
-
+    const watermap = Create2DArray<number>(length, 1) as (number | null)[][];
+    const img = ctx.getImageData(0, 0, length, length);
     for (let i = 0; i < length; i++) {
         for (let j = 0; j < length; j++) {
-            let index = i * length * 4 + j * 4;
-            watermap[i][j] = img.data[index] / 255;     // 0 => 255 : 0 => 1    0 = water, 1 = land
+            watermap[i][j] = img.data[i * length * 4 + j * 4] / 255;
         }
     }
-
     return watermap;
 }
 
-// map filtering, for example smoothing the pixels in the plains, but leaving mountains and sea untouched
-// or enhance mountain edges
-// pas a kernel for filtering
-// see: https://en.wikipedia.org/wiki/Kernel_(image_processing) 
-
-function filterMap(map, fromLevel, toLevel, kernel) {
-    const maxY = map.length;
-    const maxX = map[0].length;
-
-    // kernel size must be uneven!
-    const kernelDist = parseInt((kernel.length - 1) / 2);
-    
-    const filteredMap = Create2DArray(maxY, 0);
+function filterMap(mapData: number[][], fromLevel: number, toLevel: number, kernel: number[][]): number[][] {
+    const maxY = mapData.length;
+    const maxX = mapData[0].length;
+    const kernelDist = Math.floor((kernel.length - 1) / 2);
+    const filteredMap = Create2DArray<number>(maxY, 0) as number[][];
 
     for (let y = 0; y < maxY; y++) {
         for (let x = 0; x < maxX; x++) {
-            let h = map[y][x];
+            let h = mapData[y][x];
             if (h >= fromLevel && h < fromLevel + toLevel) {
                 let sum = 0;
                 let cnt = 0;
-                for(let i = -kernelDist; i <= kernelDist; i++) {
-                    for(let j = -kernelDist; j <= kernelDist; j++) {
-                        if (y+i >=0 && y+i < maxY && x+j >= 0 && x+j < maxX) {
-                            cnt += kernel[i+kernelDist][j+kernelDist];
-                            sum += map[y+i][x+j] * kernel[i+kernelDist][j+kernelDist];                            
+                for (let i = -kernelDist; i <= kernelDist; i++) {
+                    for (let j = -kernelDist; j <= kernelDist; j++) {
+                        if (y + i >= 0 && y + i < maxY && x + j >= 0 && x + j < maxX) {
+                            cnt += kernel[i + kernelDist][j + kernelDist];
+                            sum += mapData[y + i][x + j] * kernel[i + kernelDist][j + kernelDist];
                         }
                     }
                 }
-                if(cnt) h = sum / cnt;
+                if (cnt) h = sum / cnt;
             }
-            filteredMap[y][x] = h; 
+            filteredMap[y][x] = h;
         }
     }
-    
     return filteredMap;
 }
 
-function tiltMap(map, gravityCenter, waterDepth) {
-    const maxY = map.length;
-    const maxX = map[0].length;
-    
-    const tiltedMap = Create2DArray(maxY, 0);
-    let gravityPoint = {};
+interface GravityPoint { x?: number; y?: number; }
 
-    switch(gravityCenter) {
-        case 1: // center
-            gravityPoint.x = parseInt(maxX / 2);
-            gravityPoint.y = parseInt(maxY / 2);
-            break;
-        case 2: // North center
-            gravityPoint.x = parseInt(maxX / 2);
-            gravityPoint.y = 0;
-            break;
-        case 3: // North - East
-            gravityPoint.x = maxX;
-            gravityPoint.y = 0;
-            break;
-        case 4: // East center
-            gravityPoint.x = maxX;
-            gravityPoint.y = parseInt(maxY  / 2);
-            break;
-        case 5: // South - East
-            gravityPoint.x = maxX;
-            gravityPoint.y = maxY;
-            break;
-        case 6: // South center
-            gravityPoint.x = parseInt(maxX / 2);
-            gravityPoint.y = maxY;
-            break;
-        case 7: // South - West
-            gravityPoint.x = 0;
-            gravityPoint.y = maxY;
-            break;
-        case 8: // West center
-            gravityPoint.x = 0;
-            gravityPoint.y = parseInt(maxY / 2);
-            break;
-        case 9: // North - West
-            gravityPoint.x = 0;
-            gravityPoint.y = 0;
-            break;
-        case 10: // North side
-            gravityPoint.y = 0;
-            break;
-        case 11: // East side
-            gravityPoint.x = maxX;
-            break;
-        case 12: // South side
-            gravityPoint.y = maxY;
-            break;
-        case 13: // West side
-            gravityPoint.x = 0;
-            break;
-        default:
-            // do nothing
+function tiltMap(mapData: number[][], gravityCenter: number, waterDepth: number): number[][] {
+    const maxY = mapData.length;
+    const maxX = mapData[0].length;
+    const tiltedMap = Create2DArray<number>(maxY, 0) as number[][];
+    const gravityPoint: GravityPoint = {};
+
+    switch (gravityCenter) {
+        case 1: gravityPoint.x = Math.floor(maxX / 2); gravityPoint.y = Math.floor(maxY / 2); break;
+        case 2: gravityPoint.x = Math.floor(maxX / 2); gravityPoint.y = 0; break;
+        case 3: gravityPoint.x = maxX; gravityPoint.y = 0; break;
+        case 4: gravityPoint.x = maxX; gravityPoint.y = Math.floor(maxY / 2); break;
+        case 5: gravityPoint.x = maxX; gravityPoint.y = maxY; break;
+        case 6: gravityPoint.x = Math.floor(maxX / 2); gravityPoint.y = maxY; break;
+        case 7: gravityPoint.x = 0; gravityPoint.y = maxY; break;
+        case 8: gravityPoint.x = 0; gravityPoint.y = Math.floor(maxY / 2); break;
+        case 9: gravityPoint.x = 0; gravityPoint.y = 0; break;
+        case 10: gravityPoint.y = 0; break;
+        case 11: gravityPoint.x = maxX; break;
+        case 12: gravityPoint.y = maxY; break;
+        case 13: gravityPoint.x = 0; break;
     }
 
     for (let y = 0; y < maxY; y++) {
         for (let x = 0; x < maxX; x++) {
-            let h = map[y][x];
-            let correction = 0; 
-            
-            //calculate the relative distance to the gravity center or side
+            const h = mapData[y][x];
             let relDistance = 0;
-            switch(gravityCenter) {
-                case 1:
-                case 2:
-                case 3:
-                case 4:
-                case 5:
-                case 6:
-                case 7:
-                case 8:
-                case 9:
-                    //pythagoras for distance
-                    relDistance = Math.sqrt(Math.pow(gravityPoint.x - x, 2) + Math.pow(gravityPoint.y - y, 2)) / maxY;
+            switch (gravityCenter) {
+                case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9:
+                    relDistance = Math.sqrt(Math.pow((gravityPoint.x ?? 0) - x, 2) + Math.pow((gravityPoint.y ?? 0) - y, 2)) / maxY;
                     break;
-                case 10:
-                case 12:
-                    // north and south side, only take y distance into account
-                    relDistance = Math.abs(gravityPoint.y - y) / maxY;
+                case 10: case 12:
+                    relDistance = Math.abs((gravityPoint.y ?? 0) - y) / maxY;
                     break;
-                case 11:
-                case 13:
-                    // east and west side, only take x distance into account
-                    relDistance = Math.abs(gravityPoint.x - x) / maxX;
+                case 11: case 13:
+                    relDistance = Math.abs((gravityPoint.x ?? 0) - x) / maxX;
                     break;
-                default:
-                    // do nothing
             }
-
-            tiltedMap[y][x] = h +  Math.round(waterDepth * relDistance * 100) / 100;;
+            tiltedMap[y][x] = h + Math.round(waterDepth * relDistance * 100) / 100;
         }
     }
 
-    if(gravityCenter == 0) {
+    if (gravityCenter === 0) {
         console.log('no map tilting');
-    } else{
+    } else {
         console.log(`tilted map in direction ${gravityCenter} with ${waterDepth} m`);
     }
     return tiltedMap;
 }
 
-function interpolateArray(data, fitCount) {
-
-    var linearInterpolate = function (before, after, atPoint) {
-        return before + (after - before) * atPoint;
-    };
-
-    var newData = new Array();
-    var springFactor = new Number((data.length - 1) / (fitCount - 1));
-    newData[0] = data[0]; // for new allocation
-    for ( var i = 1; i < fitCount - 1; i++) {
-        var tmp = i * springFactor;
-        var before = new Number(Math.floor(tmp)).toFixed();
-        var after = new Number(Math.ceil(tmp)).toFixed();
-        var atPoint = tmp - before;
-        newData[i] = linearInterpolate(data[before], data[after], atPoint);
+function interpolateArray(data: number[], fitCount: number): number[] {
+    const linearInterpolate = (before: number, after: number, atPoint: number) => before + (after - before) * atPoint;
+    const newData: number[] = new Array(fitCount) as number[];
+    const springFactor = (data.length - 1) / (fitCount - 1);
+    newData[0] = data[0];
+    for (let i = 1; i < fitCount - 1; i++) {
+        const tmp = i * springFactor;
+        const before = Math.floor(tmp);
+        const after = Math.ceil(tmp);
+        newData[i] = linearInterpolate(data[before], data[after], tmp - before);
     }
-    newData[fitCount - 1] = data[data.length - 1]; // for new allocation
+    newData[fitCount - 1] = data[data.length - 1];
     return newData;
 }
 
-function levelMap(map, min, max, style) {
-    let curve;
-
-
-    switch(style) {
-        case 1: // reserved for testing
-            curve = [0.1, 1, 1.9];            
-            break;
-        case 2: // coastline and plains
-            curve = [0.15, 0.45, 0.75, 1.1, 1.4, 1.7, 1.9, 1.9];
-            break;
-        case 3: // agressive coastline and plains
-            curve = [0.1, 0.2, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6];
-            break;
-        case 9:
-            curve = [0.1, 0.2, 0.5, 1, 1.3, 1.7, 2.5];
-            break;
-        default:
-            console.log('no map leveling');
-            return map;
+function levelMap(mapData: number[][], min: number, max: number, style: number): number[][] {
+    let curve: number[];
+    switch (style) {
+        case 1: curve = [0.1, 1, 1.9]; break;
+        case 2: curve = [0.15, 0.45, 0.75, 1.1, 1.4, 1.7, 1.9, 1.9]; break;
+        case 3: curve = [0.1, 0.2, 1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]; break;
+        case 9: curve = [0.1, 0.2, 0.5, 1, 1.3, 1.7, 2.5]; break;
+        default: console.log('no map leveling'); return mapData;
     }
 
     const interpolatedCurve = interpolateArray(curve, 256);
-
-    const maxY = map.length;
-    const maxX = map[0].length;
+    const maxY = mapData.length;
+    const maxX = mapData[0].length;
     const elevationStep = Math.round((max - min) / interpolatedCurve.length);
-
-    // calculate the minimum level for each index in the curve
-    let levels = [min]; // size of the levels array will be 1 larger then the curve
+    const levels: number[] = [min];
     let lastLevel = min;
-    for(let i = 0; i < interpolatedCurve.length; i++) {
+    for (let i = 0; i < interpolatedCurve.length; i++) {
         levels.push(Math.round((lastLevel + elevationStep * interpolatedCurve[i]) * 10) / 10);
         lastLevel = levels[i + 1];
     }
 
-    // debugging
-    //let debug = [];
-    //for(let i = 0; i < interpolatedCurve.length; i++) {
-    //    debug.push([i, interpolatedCurve[i], levels[i]]);
-    //}
-    //exportToCSV(debug);
-
-    const leveledMap = Create2DArray(maxY, 0);
-
-    let highestHight = 0;
-
+    const leveledMap = Create2DArray<number>(maxY, 0) as number[][];
+    let highestHeight = 0;
     for (let y = 0; y < maxY; y++) {
         for (let x = 0; x < maxX; x++) {
-            let h = map[y][x];
-
-            if(h - min > 0) {
-                // calcualte the index based on the position in the heights array
-                let idx = Math.min(interpolatedCurve.length - 1, Math.floor((h - min) / elevationStep));
+            let h = mapData[y][x];
+            if (h - min > 0) {
+                const idx = Math.min(interpolatedCurve.length - 1, Math.floor((h - min) / elevationStep));
                 h = levels[idx] + ((h - levels[idx]) * interpolatedCurve[idx]);
                 h = Math.round(h * 10) / 10;
             }
-           leveledMap[y][x] = h;
-
-           if(h > highestHight) highestHight = h;
+            leveledMap[y][x] = h;
+            if (h > highestHeight) highestHeight = h;
         }
     }
 
-    console.log(`min ${min} max ${max} highest high ${highestHight}`);
-    // after releveling the map, it is possible that the highest point has become higher
-    // rescale back to original min max
+    console.log(`min ${min} max ${max} highest height ${highestHeight}`);
     let rescale = 10;
-    if (highestHight > max) {
-        rescale = Math.floor((max - min) / highestHight * 100) / 10; // little speed gain, by taking calc out the loop
+    if (highestHeight > max) {
+        rescale = Math.floor((max - min) / highestHeight * 100) / 10;
         for (let y = 0; y < maxY; y++) {
             for (let x = 0; x < maxX; x++) {
-                let h = leveledMap[y][x];
-                if(h - min > 0) {
-                    leveledMap[y][x] = Math.round(h * rescale) / 10;
-                }
+                const h = leveledMap[y][x];
+                if (h - min > 0) { leveledMap[y][x] = Math.round(h * rescale) / 10; }
             }
         }
     }
-
-    console.log(`leveled map with style ${style}, rescale ${rescale/10}`);
+    console.log(`leveled map with style ${style}, rescale ${rescale / 10}`);
     return leveledMap;
 }
 
-function toHeightmap(tiles, distance) {
-    let tileNum = tiles.length;
-    let srcMap = Create2DArray(tileNum * 512, 0);
-
-    // in heightmap, each pixel is treated as vertex data, and 1081px represents 1080 faces
-    // therefore, "1px = 16m" when the map size is 17.28km
-    let heightmap = Create2DArray(Math.ceil(1080 * (distance / mapSize)), 0);
-    let smSize = srcMap.length;
-    let hmSize = heightmap.length;
-    let r = (hmSize - 1) / (smSize - 1);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toHeightmap(tiles: any[][], distance: number): number[][] {
+    const tileNum = tiles.length;
+    const srcMap = Create2DArray<number>(tileNum * 512, 0) as number[][];
+    const heightmap = Create2DArray<number>(Math.ceil(1080 * (distance / mapSize)), 0) as number[][];
+    const smSize = srcMap.length;
+    const hmSize = heightmap.length;
+    const r = (hmSize - 1) / (smSize - 1);
 
     for (let i = 0; i < tileNum; i++) {
         for (let j = 0; j < tileNum; j++) {
-            let tile = new Uint8Array(UPNG.toRGBA8(tiles[i][j])[0]);
+            const tile = new Uint8Array(UPNG.toRGBA8(tiles[i][j])[0] as ArrayBuffer);
             for (let y = 0; y < 512; y++) {
                 for (let x = 0; x < 512; x++) {
-                    let tileIndex = y * 512 * 4 + x * 4;
-                    // resolution 0.1 meters
-                    srcMap[i * 512 + y][j * 512 + x] = -100000 + ((tile[tileIndex] * 256 * 256 + tile[tileIndex + 1] * 256 + tile[tileIndex + 2]));
+                    const tileIndex = y * 512 * 4 + x * 4;
+                    srcMap[i * 512 + y][j * 512 + x] = -100000 + (tile[tileIndex] * 256 * 256 + tile[tileIndex + 1] * 256 + tile[tileIndex + 2]);
                 }
             }
         }
     }
 
-    // bilinear interpolation
-    let hmIndex = Array(hmSize);
-
-    for (let i = 0; i < hmSize; i++) { hmIndex[i] = i / r }
-    for (let i = 0; i < (hmSize - 1); i++) {
-        for (let j = 0; j < (hmSize - 1); j++) {
-            let y0 = Math.floor(hmIndex[i]);
-            let x0 = Math.floor(hmIndex[j]);
-            let y1 = y0 + 1;
-            let x1 = x0 + 1;
-            let dy = hmIndex[i] - y0;
-            let dx = hmIndex[j] - x0;
+    const hmIndex: number[] = Array(hmSize) as number[];
+    for (let i = 0; i < hmSize; i++) { hmIndex[i] = i / r; }
+    for (let i = 0; i < hmSize - 1; i++) {
+        for (let j = 0; j < hmSize - 1; j++) {
+            const y0 = Math.floor(hmIndex[i]);
+            const x0 = Math.floor(hmIndex[j]);
+            const y1 = y0 + 1;
+            const x1 = x0 + 1;
+            const dy = hmIndex[i] - y0;
+            const dx = hmIndex[j] - x0;
             heightmap[i][j] = Math.round((1 - dx) * (1 - dy) * srcMap[y0][x0] + dx * (1 - dy) * srcMap[y0][x1] + (1 - dx) * dy * srcMap[y1][x0] + dx * dy * srcMap[y1][x1]);
         }
     }
-    for (let i = 0; i < hmSize; i++) { heightmap[i][hmSize - 1] = srcMap[i][hmSize - 1] }
-    for (let j = 0; j < hmSize; j++) { heightmap[hmSize - 1][j] = srcMap[hmSize - 1][j] }
-
+    for (let i = 0; i < hmSize; i++) { heightmap[i][hmSize - 1] = srcMap[i][hmSize - 1]; }
+    for (let j = 0; j < hmSize; j++) { heightmap[hmSize - 1][j] = srcMap[hmSize - 1][j]; }
     return heightmap;
 }
 
-function toTerrainRGB(heightmap) {
-    let canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
+function toTerrainRGB(heightmap: number[][]): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
     canvas.width = heightmap.length;
     canvas.height = heightmap.length;
-
-    let img = ctx.createImageData(canvas.width, canvas.height);
-
+    const img = ctx.createImageData(canvas.width, canvas.height);
     for (let y = 0; y < canvas.height; y++) {
         for (let x = 0; x < canvas.width; x++) {
-            let r = Math.floor((Math.floor((heightmap[y][x] + 100000) / 256)) / 256);
-            let g = (Math.floor((heightmap[y][x] + 100000) / 256)) % 256;
-            let b = (heightmap[y][x] + 100000) % 256;
-
-            let index = y * canvas.width * 4 + x * 4;
-
-            // create pixel
-            img.data[index + 0] = r;
-            img.data[index + 1] = g;
-            img.data[index + 2] = b;
+            const index = y * canvas.width * 4 + x * 4;
+            img.data[index + 0] = Math.floor(Math.floor((heightmap[y][x] + 100000) / 256) / 256);
+            img.data[index + 1] = Math.floor((heightmap[y][x] + 100000) / 256) % 256;
+            img.data[index + 2] = (heightmap[y][x] + 100000) % 256;
             img.data[index + 3] = 255;
         }
     }
-
     ctx.putImageData(img, 0, 0);
-
     return canvas;
 }
 
-function toCitiesmap(heightmap, watermap) {
+function toCitiesmap(heightmap: number[][], watermap: number[][]): Uint8ClampedArray {
     const citiesmapSize = 1081;
+    const citiesmap = new Uint8ClampedArray(2 * citiesmapSize * citiesmapSize);
+    let workingmap = Create2DArray<number>(citiesmapSize, 0) as number[][];
 
-    // cities has L/H byte order
-    let citiesmap = new Uint8ClampedArray(2 * citiesmapSize * citiesmapSize);
-    let workingmap = Create2DArray(citiesmapSize, 0); 
+    const waterDepth = Math.round(Number(scope['waterDepth']) / parseFloat(String(scope['heightScale'])) * 100 * 10) / 10;
 
-    // correct the waterDepth for the scaling. 
-    // in the final pass, it will be scaled back. Round to 1 decimal
-    let waterDepth = Math.round(scope.waterDepth /  parseFloat(scope.heightScale) * 100 * 10) / 10;
-    
-    // watermap: => normalized depth between 0 => deepest water, 1 => land
-    
     for (let y = 0; y < citiesmapSize; y++) {
         for (let x = 0; x < citiesmapSize; x++) {
-            // stay with ints as long as possible
-            let height = (heightmap[y][x] - scope.baseLevel * 10);
-            
-            // raise the land by the amount of water depth
-            // a height lower than baselevel is considered to be the below sea level and the height is set to 0
-            // water depth is unaffected by height scale
-            // the map is unscaled at this point, so high mountains above 1024 meter can be present
-            let calcHeight = (height + Math.round(waterDepth * 10 * watermap[y][x])) / 10;
-            workingmap[y][x] = Math.max(0, calcHeight);                       
+            const height = heightmap[y][x] - Number(scope['baseLevel']) * 10;
+            const calcHeight = (height + Math.round(waterDepth * 10 * watermap[y][x])) / 10;
+            workingmap[y][x] = Math.max(0, calcHeight);
         }
     }
 
-    // level correction, for specific needs
-    // to smooth plains and dramatize mountains or level a mountanus coastline
-    workingmap = levelMap(workingmap, grid.minHeight + waterDepth, grid.maxHeight, scope.levelCorrection);
+    workingmap = levelMap(workingmap, (grid.minHeight ?? 0) + waterDepth, grid.maxHeight ?? 0, Number(scope['levelCorrection']));
 
-    // smooth the plains and wateredges in a number of passes
-    let passes = parseInt(document.getElementById('blurPasses').value);
-    let postPasses = parseInt(document.getElementById('blurPostPasses').value);
-    let plainsHeight = parseInt(document.getElementById('plainsHeight').value);
-    for(let l=0; l<passes; l++) {
-        workingmap = filterMap(workingmap, 0, plainsHeight + waterDepth, meanKernel);
-    }
+    const passes = parseInt((document.getElementById('blurPasses') as HTMLInputElement).value);
+    const postPasses = parseInt((document.getElementById('blurPostPasses') as HTMLInputElement).value);
+    const plainsHeight = parseInt((document.getElementById('plainsHeight') as HTMLInputElement).value);
+    for (let l = 0; l < passes; l++) { workingmap = filterMap(workingmap, 0, plainsHeight + waterDepth, meanKernel); }
+    for (let l = 0; l < postPasses; l++) { workingmap = filterMap(workingmap, plainsHeight + waterDepth, grid.maxHeight ?? 0, sharpenKernel); }
 
-    // sharpen the mountains, for more dramatic effect
-    for(let l=0; l<postPasses; l++) {
-        workingmap = filterMap(workingmap, plainsHeight + waterDepth, grid.maxHeight, sharpenKernel);
-    } 
-
-    // if there where enough passes, all the small streams on the plains are faded.
-    // so redraw them, with little extra depth
-    let streamDepth = parseInt(document.getElementById('streamDepth').value);
+    const streamDepth = parseInt((document.getElementById('streamDepth') as HTMLInputElement).value);
     let highestWaterHeight = 0;
-    if(document.getElementById('drawStrm').checked) {
-            for (let y = 0; y < citiesmapSize; y++) {
+    if ((document.getElementById('drawStrm') as HTMLInputElement).checked) {
+        for (let y = 0; y < citiesmapSize; y++) {
             for (let x = 0; x < citiesmapSize; x++) {
-                let height = workingmap[y][x];
-                if(height > highestWaterHeight) {
-                        highestWaterHeight = height;
-                } 
-                // prevent drawing below the seabed
-                if (height > streamDepth) {
-                    workingmap[y][x] = height - (1 - watermap[y][x]) * streamDepth;                
-                }
+                const height = workingmap[y][x];
+                if (height > highestWaterHeight) { highestWaterHeight = height; }
+                if (height > streamDepth) { workingmap[y][x] = height - (1 - watermap[y][x]) * streamDepth; }
             }
         }
     }
 
-    // tilt the map in the direction of gravity, so water always flows to the lowest point
-    let tiltHeight = parseInt(document.getElementById('tiltHeight').value);
-    // correct the tiltHeight for the scale. In the final pass, it will be corrected back
-    tiltHeight = Math.round(tiltHeight /  parseFloat(scope.heightScale) * 100 * 10) / 10;
-    workingmap = tiltMap(workingmap, scope.gravityCenter, tiltHeight);
+    let tiltHeight = parseInt((document.getElementById('tiltHeight') as HTMLInputElement).value);
+    tiltHeight = Math.round(tiltHeight / parseFloat(String(scope['heightScale'])) * 100 * 10) / 10;
+    workingmap = tiltMap(workingmap, Number(scope['gravityCenter']), tiltHeight);
 
-    // finally, finish the drawn streams with a light smoothing
-    // the streams are drawn over the entire map, so post process the entire map
-    for(let l=0; l<postPasses; l++) {
-        workingmap = filterMap(workingmap, 0, highestWaterHeight, meanKernel);
-    }     
+    for (let l = 0; l < postPasses; l++) { workingmap = filterMap(workingmap, 0, highestWaterHeight, meanKernel); }
 
-    // debug
-    //exportToCSV(workingmap);
-
-    // convert the normalized and smoothed map to a cities skylines map/
-    // As this is the final step, take scale into account
     for (let y = 0; y < citiesmapSize; y++) {
         for (let x = 0; x < citiesmapSize; x++) {
-            // get the value in 1/10meyers and scale and convert to cities skylines 16 bit int
-            let h = Math.round(workingmap[y][x] / 100 * parseFloat(scope.heightScale) / 0.015625);
-
+            let h = Math.round(workingmap[y][x] / 100 * parseFloat(String(scope['heightScale'])) / 0.015625);
             if (h > 65535) h = 65535;
-
-            // calculate index in image
-            let index = y * citiesmapSize * 2 + x * 2;
-
-            // cities used hi/low 16 bit
+            const index = y * citiesmapSize * 2 + x * 2;
             citiesmap[index + 0] = h >> 8;
             citiesmap[index + 1] = h & 255;
         }
     }
 
-    //exportToCSV(citiesmap);
-
-    // draw a grid on the image
-    if (document.getElementById('drawGrid').checked) {
+    if ((document.getElementById('drawGrid') as HTMLInputElement).checked) {
         for (let y = 0; y < citiesmapSize; y++) {
             for (let x = 0; x < citiesmapSize; x++) {
-
-                if (y % 120 == 0 || x % 120 == 0) {
-                    // calculate index in image
-                    let index = y * citiesmapSize * 2 + x * 2;
-
-                    // create pixel
+                if (y % 120 === 0 || x % 120 === 0) {
+                    const index = y * citiesmapSize * 2 + x * 2;
                     citiesmap[index + 0] = 127;
                     citiesmap[index + 1] = 255;
                 }
@@ -1441,129 +1101,102 @@ function toCitiesmap(heightmap, watermap) {
         }
     }
 
-    // marker, upper left corner
-    if (document.getElementById('drawMarker').checked) {
-        citiesmap[0] = 255;
-        citiesmap[1] = 255;
-        citiesmap[2] = 0;
-        citiesmap[3] = 0;
+    if ((document.getElementById('drawMarker') as HTMLInputElement).checked) {
+        citiesmap[0] = 255; citiesmap[1] = 255; citiesmap[2] = 0; citiesmap[3] = 0;
     }
 
-    // log the correct bounding rect to the console
-    let bounds = getExtent(grid.lng, grid.lat, mapSize);
+    const bounds = getExtent(grid.lng, grid.lat, mapSize);
     console.log(bounds.topleft[0], bounds.topleft[1], bounds.bottomright[0], bounds.bottomright[1]);
-
     return citiesmap;
 }
 
-function download(filename, data, url = false) {
-    var a = window.document.createElement('a');
-
+function download(filename: string, data: BlobPart | null, url: string | false = false) {
+    const a = window.document.createElement('a');
     if (url) {
         a.href = url;
-    } else {
+    } else if (data !== null) {
         a.href = window.URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
     }
     a.download = filename;
-
-    // Append anchor to body.
-    document.body.appendChild(a)
+    document.body.appendChild(a);
     a.click();
-
-    // Remove anchor from body
-    document.body.removeChild(a)
+    document.body.removeChild(a);
 }
 
-async function downloadPngToTile(url, withoutQueryUrl = url) {
+async function downloadPngToTile(url: string, withoutQueryUrl = url) {
     const cachedRes = await caches.match(url, { ignoreSearch: true });
     if (cachedRes && cachedRes.ok) {
         console.log('terrain-rgb: load from cache');
-        let pngData = await cachedRes.arrayBuffer();
-        let png = UPNG.decode(pngData);
-        return png;
+        return UPNG.decode(await cachedRes.arrayBuffer());
     } else {
         console.log('terrain-rgb: load by fetch, cache downloaded file');
         try {
             const response = await fetch(url);
             if (response.ok) {
-                let res = response.clone();
-                let pngData = await response.arrayBuffer();
-                let png = UPNG.decode(pngData);
-                cache.put(withoutQueryUrl, res);
+                const pngData = await response.arrayBuffer();
+                const png = UPNG.decode(pngData);
+                cache.put(withoutQueryUrl, response.clone());
                 return png;
             } else {
-                throw new Error('download terrain-rgb error:', response.status);
+                throw new Error('download terrain-rgb error: ' + String(response.status));
             }
-        } catch (e) {
-            console.log(e.message);
-        }
+        } catch (e) { console.log((e as Error).message); }
     }
 }
 
-async function downloadPbfToTile(url, withoutQueryUrl = url) {
+async function downloadPbfToTile(url: string, withoutQueryUrl = url) {
     const cachedRes = await caches.match(url, { ignoreSearch: true });
     if (cachedRes && cachedRes.ok) {
         console.log('pbf: load from cache');
-        let data = await cachedRes.arrayBuffer();
-        let tile = new VectorTile(new Protobuf(new Uint8Array(data)));
-        return tile;
+        return new VectorTile(new Protobuf(new Uint8Array(await cachedRes.arrayBuffer())));
     } else {
         console.log('pbf: load by fetch, cache downloaded file');
         try {
             const response = await fetch(url);
             if (response.ok) {
-                let res = response.clone();
-                let data = await response.arrayBuffer();
-                let tile = new VectorTile(new Protobuf(new Uint8Array(data)));
-                cache.put(withoutQueryUrl, res);
+                const data = await response.arrayBuffer();
+                const tile = new VectorTile(new Protobuf(new Uint8Array(data)));
+                cache.put(withoutQueryUrl, response.clone());
                 return tile;
             } else {
-                throw new Error('download Pbf error:', response.status);
+                throw new Error('download Pbf error: ' + String(response.status));
             }
         } catch (e) {
-            console.log(e.message);
+            console.log((e as Error).message);
             return true;
         }
     }
 }
 
-//Original by @Niharkanta1
-function downloadAsZip(data, mode) {
-    var filename = prompt("Please enter your map name", "HeightMap");
+function downloadAsZip(data: BlobPart, mode: number) {
+    const filename = prompt('Please enter your map name', 'HeightMap');
     if (filename == null) { return; }
-    var zip = new JSZip();
-    var info = getInfo(filename);
-    zip.file("info.txt", info);
-    let imageName = mode == 0 ? filename + ".raw" : (mode == 1 ? filename + ".png" : filename + "-tiles.png");
+    const zip = new JSZip();
+    zip.file('info.txt', getInfo(filename));
+    const imageName = mode === 0 ? filename + '.raw' : (mode === 1 ? filename + '.png' : filename + '-tiles.png');
     zip.file(imageName, data, { binary: true });
-    zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 1 } })
-        .then(function (content) {
-            download(filename + ".zip", content);
-        });
+    zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } })
+        .then((content) => { download(filename + '.zip', content); });
 }
 
-function getInfo(fileName) {
-    return 'Heightmap name: ' + fileName + '\n' +
-        '\n' +
-        '/* Generated by Cities: Skylines online heightmap generator (https://cs.heightmap.skydark.pl) (https://github.com/sysoppl/Cities-Skylines-heightmap-generator) */\n' +
-        '\n' +
+function getInfo(fileName: string): string {
+    return 'Heightmap name: ' + fileName + '\n\n' +
+        '/* Generated by Cities: Skylines online heightmap generator */\n\n' +
         'Longitude: ' + grid.lng.toFixed(5) + '\n' +
         'Latitude: ' + grid.lat.toFixed(5) + '\n' +
-        'Min Height: ' + grid.minHeight + '\n' +
-        'Max Height: ' + grid.maxHeight + '\n' +
-        'Water contours: ' + grid.waterContours + '\n' +
-        'Height contours: ' + grid.heightContours + '\n' +
-        'Zoom: ' + grid.zoom + '\n';
+        'Min Height: ' + String(grid.minHeight) + '\n' +
+        'Max Height: ' + String(grid.maxHeight) + '\n' +
+        'Water contours: ' + String(grid.waterContours) + '\n' +
+        'Height contours: ' + String(grid.heightContours) + '\n' +
+        'Zoom: ' + String(grid.zoom) + '\n';
 }
 
-// Function to get the API token from local storage, otherwise null
-function getApiToken() {
-    return localStorage.getItem('mapboxApiToken') || 'null';
+function getApiToken(): string {
+    return localStorage.getItem('mapboxApiToken') ?? 'null';
 }
 
-// Function to save the API token to local storage
 function saveApiToken() {
-    const token = document.getElementById('mapboxApiToken').value;
+    const token = (document.getElementById('mapboxApiToken') as HTMLInputElement).value;
     if (token) {
         localStorage.setItem('mapboxApiToken', token);
         alert('API token saved! Refresh the page to apply the changes.');
@@ -1572,10 +1205,48 @@ function saveApiToken() {
     }
 }
 
-// Event listener to load the saved API token into the input field on page load
+function showAlert() {
+    if ((localStorage.getItem('mapboxApiToken') ?? 'null') === 'null') {
+        alert('Set MAPBOX API TOKEN in the settings panel (expand \'I\' icon) and refresh page!\n\n' +
+            'You can get it for free at https://www.mapbox.com/\n\n' +
+            'This is required for this app to work properly!');
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const savedToken = localStorage.getItem('mapboxApiToken');
     if (savedToken) {
-        document.getElementById('mapboxApiToken').value = savedToken;
+        (document.getElementById('mapboxApiToken') as HTMLInputElement).value = savedToken;
     }
+});
+
+// ── Expose functions needed by HTML onclick / onmouseup / onkeyup attrs ───────
+
+declare global {
+    interface Window {
+        togglePanel: typeof togglePanel;
+        getHeightmap: typeof getHeightmap;
+        getOSMData: typeof getOSMData;
+        getMapImage: typeof getMapImage;
+        autoSettings: typeof autoSettings;
+        showHeightContours: typeof showHeightContours;
+        showWaterContours: typeof showWaterContours;
+        zoomIn: typeof zoomIn;
+        zoomOut: typeof zoomOut;
+        setMapStyle: typeof setMapStyle;
+        setLngLat: typeof setLngLat;
+        changeMapsize: typeof changeMapsize;
+        setBaseLevel: typeof setBaseLevel;
+        setHeightScale: typeof setHeightScale;
+        deleteCaches: typeof deleteCaches;
+        saveApiToken: typeof saveApiToken;
+        showAlert: typeof showAlert;
+    }
+}
+
+Object.assign(window, {
+    togglePanel, getHeightmap, getOSMData, getMapImage, autoSettings,
+    showHeightContours, showWaterContours, zoomIn, zoomOut, setMapStyle,
+    setLngLat, changeMapsize, setBaseLevel, setHeightScale, deleteCaches,
+    saveApiToken, showAlert,
 });

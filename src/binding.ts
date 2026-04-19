@@ -6,13 +6,13 @@
 const inputElements = document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-model]');
 const boundElements = document.querySelectorAll<HTMLElement>('[data-bind]');
 
-// Initialize scope variable to hold the state of the model.
-var scope: any = {};
+// Shared scope object – exported so app.ts can read/write bound values.
+export const scope: Record<string, unknown> = {};
 
 
 function init() {
     // Loop through input elements
-    for (let el of inputElements) {
+    for (const el of inputElements) {
         // Get property name from each input with an attribute of 'data-model'
         const propName = el.getAttribute('data-model');
         if (!propName) {
@@ -26,29 +26,29 @@ function init() {
         // Set property update logic
         setPropUpdateLogic(propName);
     }
-};
+}
 
 function setPropUpdateLogic(prop: string) {
-    if (!scope.hasOwnProperty(prop)) {
-        let value: any;
+    if (!Object.prototype.hasOwnProperty.call(scope, prop)) {
+        let value: unknown;
         Object.defineProperty(scope, prop, {
             // Automatically update bound dom elements when a scope property is set to a new value
-            set: (newValue: any) => {
+            set: (newValue: unknown) => {
                 value = newValue;
 
                 // Set input elements to new value
-                for (let el of inputElements) {
+                for (const el of inputElements) {
                     if (el.getAttribute('data-model') === prop) {
                         if (el.type) {
-                            el.value = newValue;
+                            el.value = String(newValue);
                         }
                     }
                 }
                 // Set all other bound dom elements to new value
-                for (let el of boundElements) {
+                for (const el of boundElements) {
                     if (el.getAttribute('data-bind') === prop) {
                         if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLSelectElement)) {
-                            el.innerHTML = newValue;
+                            el.innerHTML = String(newValue);
                         }
                     }
                 }
@@ -57,7 +57,7 @@ function setPropUpdateLogic(prop: string) {
                 return value;
             },
             enumerable: true
-        })
+        });
     }
 }
 
