@@ -20,8 +20,9 @@ function init() {
         }
 
         // Update bound scope property on input change
-        el.addEventListener('keyup', () => { scope[propName] = el.value; });
-        el.addEventListener('mouseup', () => { scope[propName] = el.value; });
+        const updateScope = () => { scope[propName] = el.value; };
+        el.addEventListener('keyup', updateScope);
+        el.addEventListener('mouseup', updateScope);
 
         // Set property update logic
         setPropUpdateLogic(propName);

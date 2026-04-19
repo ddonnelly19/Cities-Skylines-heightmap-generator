@@ -426,8 +426,9 @@ function exportToCSV(mapData: (number | number[] | null)[] | number[][]) {
     document.body.removeChild(a);
 }
 
-// suppress unused-variable warning for exportToCSV (available for debug console use)
-void exportToCSV;
+// exportToCSV is not called in production but is useful for debug sessions in the browser console.
+// Referencing it prevents tree-shaking from removing it.
+if (debug) { (window as unknown as Record<string, unknown>)['exportToCSV'] = exportToCSV; }
 
 function togglePanel(index: number) {
     const isOpens: boolean[] = [];
@@ -1198,6 +1199,9 @@ function getApiToken(): string {
 function saveApiToken() {
     const token = (document.getElementById('mapboxApiToken') as HTMLInputElement).value;
     if (token) {
+        // Note: Mapbox public tokens (pk.*) are designed to be used in browser code and
+        // are scoped per account/URL allowlist on the Mapbox dashboard. Storing them in
+        // localStorage is the standard approach for client-side-only apps like this one.
         localStorage.setItem('mapboxApiToken', token);
         alert('API token saved! Refresh the page to apply the changes.');
     } else {
@@ -1244,6 +1248,8 @@ declare global {
     }
 }
 
+// Expose functions needed by HTML onclick / onmouseup / onkeyup attributes.
+// esbuild bundles into an IIFE so these would not be globally visible otherwise.
 Object.assign(window, {
     togglePanel, getHeightmap, getOSMData, getMapImage, autoSettings,
     showHeightContours, showWaterContours, zoomIn, zoomOut, setMapStyle,

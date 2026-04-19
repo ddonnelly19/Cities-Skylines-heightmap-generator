@@ -9,6 +9,9 @@
 		"outDir": "out",
 		"inlineSourceMap": true,
 		"strict": true,
+		// skipLibCheck is required: @types/mapbox__vector-tile and jszip's built-in types
+		// use legacy global namespace declarations that are incompatible with newer TypeScript
+		// module resolution ("bundler"). Our own source files are fully type-checked.
 		"skipLibCheck": true,
 		"allowJs": false,
 		"checkJs": false,
