@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"lib": [
+			"ESNext",
+			"DOM"
+		],
+		"rootDir": "src",
+		"outDir": "out",
+		"inlineSourceMap": true,
+		"strict": true,
+		"allowJs": true,
+		"checkJs": true,
+		"forceConsistentCasingInFileNames": true,
+		"target": "esnext"
+	},
+	"include": [
+		"src/**/*"
+	],
+	"exclude": [
+		"out/**/*"
+	]
+}

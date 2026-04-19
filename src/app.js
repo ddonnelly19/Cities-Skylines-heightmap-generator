@@ -1,4 +1,4 @@
-// <reference path='https://api.tiles.mapbox.com/mapbox-gl-js/v1.8.0/mapbox-gl.js' />
+/// <reference path='https://api.tiles.mapbox.com/mapbox-gl-js/v1.8.0/mapbox-gl.js' />
 
 'use strict'
 
@@ -451,6 +451,11 @@ function saveSettings() {
     localStorage.setItem('grid', JSON.stringify(grid));
 }
 
+/**
+ * @template T
+ * @param {number} rows
+ * @param {T} [def]
+ */
 function Create2DArray(rows, def = null) {
     let arr = new Array(rows);
     for (let i = 0; i < rows; i++) {
