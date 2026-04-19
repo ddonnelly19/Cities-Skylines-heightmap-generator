@@ -2,19 +2,30 @@
 	"compilerOptions": {
 		"lib": [
 			"ESNext",
-			"DOM"
+			"DOM",
+			"DOM.Iterable"
 		],
 		"rootDir": "src",
 		"outDir": "out",
 		"inlineSourceMap": true,
 		"strict": true,
-		"allowJs": true,
-		"checkJs": true,
+		// skipLibCheck is required: @types/mapbox__vector-tile and jszip's built-in types
+		// use legacy global namespace declarations that are incompatible with newer TypeScript
+		// module resolution ("bundler"). Our own source files are fully type-checked.
+		"skipLibCheck": true,
+		"allowJs": false,
+		"checkJs": false,
+		"noEmit": true,
+		"noEmitOnError": true,
 		"forceConsistentCasingInFileNames": true,
-		"target": "esnext"
+		"target": "esnext",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"esModuleInterop": true
 	},
 	"include": [
-		"src/**/*"
+		"src/**/*.ts",
+		"src/**/*.d.ts"
 	],
 	"exclude": [
 		"out/**/*"

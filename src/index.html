@@ -290,24 +290,8 @@
 	</div>
 
 
-	<script>
-		function showAlert() {
-			const checkApi = localStorage.getItem('mapboxApiToken') || 'null';
-			if (checkApi === 'null')
-				alert("Set MAPBOX API TOKEN in the settings panel (expand 'I' icon) and refresh page! \n\n" +
-					"You can get it for free at https://www.mapbox.com/\n\n" +
-					"This is required for this app to work properly!");
-		}
-	</script>
-
 	<body onload="showAlert()">
-		<script src="lib.js"></script>
-		<script src="jszip.js"></script>
-		<script src="pako.min.js"></script>
-		<script src="upng.js"></script>
-		<script src='tiles.js'></script>
-		<script src="binding.js"></script> <!-- needs to be loaded before app, for scope var-->
-		<script src="app.js"></script>
+		<script src="bundle.js"></script>
 	</body>
 
 </html>

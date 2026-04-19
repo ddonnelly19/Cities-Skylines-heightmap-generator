@@ -2,35 +2,19 @@
 
 'use strict';
 
-
-/**
- * @param {number} lon
- * @param {number} zoom
- */
-function long2tile(lon, zoom) {
+export function long2tile(lon: number, zoom: number): number {
     return (Math.floor((lon + 180) / 360 * Math.pow(2, zoom)));
 }
-/**
- * @param {number} lat
- * @param {number} zoom
- */
-function lat2tile(lat, zoom) {
+
+export function lat2tile(lat: number, zoom: number): number {
     return (Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom)));
 }
 
-/**
- * @param {number} x
- * @param {number} z
- */
-function tile2long(x, z) {
+export function tile2long(x: number, z: number): number {
     return (x / Math.pow(2, z) * 360 - 180);
 }
 
-/**
- * @param {number} y
- * @param {number} z
- */
-function tile2lat(y, z) {
-    var n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
+export function tile2lat(y: number, z: number): number {
+    const n = Math.PI - 2 * Math.PI * y / Math.pow(2, z);
     return (180 / Math.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))));
 }
