@@ -8,8 +8,7 @@
 	},
 	"scripts": {
 		"build": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && tsc && node -e \"const fs=require('fs');const files=['index.html','styles.css','favicon.ico','jszip.js','pako.min.js','upng.js'];for (const f of files){fs.copyFileSync('src/'+f,'out/'+f);}\"",
-		"typecheck": "tsc --noEmit",
-		"test": "echo \"Error: no test specified\" && exit 1"
+		"typecheck": "tsc --noEmit"
 	},
 	"repository": {
 		"type": "git",
